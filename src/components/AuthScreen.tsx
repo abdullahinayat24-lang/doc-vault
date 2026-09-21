@@ -18,6 +18,7 @@ import {
 import { SolicitorProfile } from '../types';
 import { supabase, isSupabaseConfigured, updateSupabaseCredentials } from '../lib/supabase';
 import { validateAndConsumeInviteKey } from '../lib/storage';
+import { PricingModal } from './Modals/PricingModal';
 
 interface AuthScreenProps {
   onAuthenticated: (profile: SolicitorProfile) => void;
@@ -46,6 +47,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -396,12 +398,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           </button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-[#f1f3f4] text-center">
+        <div className="mt-6 pt-4 border-t border-[#f1f3f4] text-center space-y-3">
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowPricingModal(true)}
+              className="text-xs font-semibold text-[#1a73e8] hover:text-[#1557b0] hover:underline inline-flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>View Solicitor Chamber Plans &amp; Pricing</span>
+            </button>
+          </div>
+
           <p className="text-[11px] text-[#5f6368] flex items-center justify-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-[#137333]" />
             <span>Secure Cloud Architecture • Isolated Client Data</span>
           </p>
         </div>
+
+        <PricingModal
+          isOpen={showPricingModal}
+          onClose={() => setShowPricingModal(false)}
+        />
       </div>
     </div>
   );

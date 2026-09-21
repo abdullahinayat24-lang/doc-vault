@@ -16,7 +16,8 @@ import {
   FileType as FileTypeIcon,
   Image as ImageIcon,
   ArrowLeft,
-  Users
+  Users,
+  Sparkles
 } from 'lucide-react';
 import { SolicitorProfile, DocumentItem, ClientRecord } from '../types';
 
@@ -30,6 +31,7 @@ interface HeaderProps {
   onOpenShare: () => void;
   onOpenAuth: () => void;
   onSignOut: () => void;
+  onOpenPricing?: () => void;
   selectedCount: number;
   activeDocument: DocumentItem | null;
   onExportSelected: () => void;
@@ -49,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShare,
   onOpenAuth,
   onSignOut,
+  onOpenPricing,
   selectedCount,
   activeDocument,
   onExportSelected,
@@ -241,6 +244,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Subscription Plans & Pricing Button */}
+        {onOpenPricing && (
+          <button
+            onClick={onOpenPricing}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] rounded-lg border border-[#1a73e8]/30 transition-colors shadow-xs"
+            title="View Solicitor Subscription Plans & Pricing"
+          >
+            <Sparkles className="w-4 h-4 text-[#1a73e8]" />
+            <span className="hidden md:inline">Plans</span>
+          </button>
+        )}
+
         {/* Lock Screen / Privacy Button */}
         <button
           onClick={onLockSession}
@@ -319,6 +334,18 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-[#f1f3f4] space-y-1.5">
+                  {onOpenPricing && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenPricing();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#1a73e8] hover:bg-[#e8f0fe] flex items-center gap-2 transition-colors font-medium"
+                    >
+                      <Sparkles className="w-4 h-4 text-[#1a73e8]" />
+                      <span>Subscription Plans &amp; Pricing</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setShowUserMenu(false);

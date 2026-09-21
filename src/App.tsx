@@ -36,6 +36,7 @@ import { SharedViewer } from './components/SharedViewer';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
 import { UploadDocumentsModal } from './components/Modals/UploadDocumentsModal';
+import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
 import { ArrowLeft } from 'lucide-react';
 
@@ -70,6 +71,7 @@ export function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isNewClientOpen, setIsNewClientOpen] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
+  const [isPricingOpen, setIsPricingOpen] = useState<boolean>(false);
 
   // Sync to localStorage
   useEffect(() => {
@@ -555,6 +557,7 @@ export function App() {
         onLockSession={() => setIsLocked(true)}
         onOpenShare={() => setIsShareOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenPricing={() => setIsPricingOpen(true)}
         onSignOut={() => {
           if (confirm('Are you sure you want to sign out?')) {
             saveSolicitorProfile(null);
@@ -706,6 +709,11 @@ export function App() {
         onClose={() => setIsUploadModalOpen(false)}
         onSaveMultiPageDoc={handleSaveMultiPageDoc}
         onBatchUploadFiles={handleBatchUpload}
+      />
+
+      <PricingModal
+        isOpen={isPricingOpen}
+        onClose={() => setIsPricingOpen(false)}
       />
     </div>
   );
