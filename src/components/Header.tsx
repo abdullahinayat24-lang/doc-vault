@@ -14,12 +14,16 @@ import {
   Database,
   ShieldCheck,
   FileType as FileTypeIcon,
-  Image as ImageIcon
+  Image as ImageIcon,
+  ArrowLeft,
+  Users
 } from 'lucide-react';
-import { SolicitorProfile, DocumentItem } from '../types';
+import { SolicitorProfile, DocumentItem, ClientRecord } from '../types';
 
 interface HeaderProps {
   user: SolicitorProfile;
+  selectedClient: ClientRecord | null;
+  onBackToClients: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onLockSession: () => void;
@@ -37,6 +41,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   user,
+  selectedClient,
+  onBackToClients,
   searchQuery,
   onSearchChange,
   onLockSession,
@@ -56,29 +62,58 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="h-16 bg-white border-b border-[#dadce0] px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
-      {/* Brand / Solicitor Logo & Title */}
-      <div className="flex items-center gap-3 min-w-[220px]">
-        {user.companyLogo ? (
-          <img
-            src={user.companyLogo}
-            alt={user.companyName}
-            className="w-10 h-10 rounded-xl object-cover border border-[#dadce0] shadow-xs"
-          />
+      {/* Brand & Breadcrumbs */}
+      <div className="flex items-center gap-3 min-w-max">
+        {selectedClient ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onBackToClients}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#f1f3f4] hover:bg-[#e8eaed] text-[#202124] rounded-xl text-xs font-bold transition-colors shadow-xs"
+              title="Return to Main Company Page & All Clients"
+            >
+              <ArrowLeft className="w-4 h-4 text-[#1a73e8]" />
+              <span>All Clients</span>
+            </button>
+            <span className="text-[#dadce0]">/</span>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="font-['Google_Sans',sans-serif] text-sm sm:text-base font-bold text-[#202124] truncate max-w-[180px] sm:max-w-[220px]">
+                  {selectedClient.name}
+                </span>
+                <span className="text-[10px] font-semibold bg-[#e8f0fe] text-[#1a73e8] px-2 py-0.2 rounded-full">
+                  {selectedClient.cameFor}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#5f6368] truncate max-w-[200px]">
+                {selectedClient.phone} • {selectedClient.visitCount} visits
+              </p>
+            </div>
+          </div>
         ) : (
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1a73e8] to-[#1557b0] flex items-center justify-center text-white shadow-sm ring-2 ring-blue-50">
-            <FileText className="w-6 h-6" />
+          <div className="flex items-center gap-3">
+            {user.companyLogo ? (
+              <img
+                src={user.companyLogo}
+                alt={user.companyName}
+                className="w-10 h-10 rounded-xl object-cover border border-[#dadce0] shadow-xs"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#1a73e8] to-[#1557b0] flex items-center justify-center text-white shadow-sm ring-2 ring-blue-50">
+                <FileText className="w-6 h-6" />
+              </div>
+            )}
+            <div className="leading-tight">
+              <div className="flex items-center gap-1.5">
+                <span className="font-['Google_Sans',sans-serif] text-base sm:text-lg font-bold text-[#202124] tracking-tight truncate max-w-[180px] sm:max-w-[240px]">
+                  {user.companyName}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#5f6368] truncate max-w-[220px]">
+                {user.displayName} • Solicitor Practice
+              </p>
+            </div>
           </div>
         )}
-        <div className="leading-tight">
-          <div className="flex items-center gap-1.5">
-            <span className="font-['Google_Sans',sans-serif] text-base sm:text-lg font-bold text-[#202124] tracking-tight truncate max-w-[180px] sm:max-w-[220px]">
-              {user.companyName || 'DocVault'}
-            </span>
-          </div>
-          <p className="text-[11px] text-[#5f6368] truncate max-w-[200px]">
-            {user.displayName || 'Solicitor Document Portal'}
-          </p>
-        </div>
       </div>
 
       {/* Gmail-styled Search Bar */}
@@ -87,7 +122,7 @@ export const Header: React.FC<HeaderProps> = ({
           <Search className="w-5 h-5 text-[#5f6368] mr-3 flex-shrink-0" />
           <input
             type="text"
-            placeholder="Search documents by name, client, or format..."
+            placeholder={selectedClient ? `Search documents in ${selectedClient.name}'s cases...` : "Search clients, cases, or documents..."}
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full bg-transparent text-sm text-[#202124] placeholder-[#5f6368] outline-none"
@@ -105,103 +140,106 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Action Buttons: Export, Share, Lock, Account */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* Export Dropdown with format options */}
-        <div className="relative">
-          <button
-            onClick={() => setShowExportMenu(!showExportMenu)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#3c4043] hover:text-[#202124] hover:bg-[#f1f3f4] rounded-lg border border-[#dadce0] transition-colors shadow-sm"
-            title="Export documents in various formats"
-          >
-            <Download className="w-4 h-4 text-[#1a73e8]" />
-            <span className="hidden sm:inline">Export</span>
-            {selectedCount > 0 && (
-              <span className="ml-1 bg-[#1a73e8] text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
-                {selectedCount}
-              </span>
-            )}
-            <ChevronDown className="w-3.5 h-3.5 text-[#5f6368]" />
-          </button>
+        {selectedClient && (
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#3c4043] hover:text-[#202124] hover:bg-[#f1f3f4] rounded-lg border border-[#dadce0] transition-colors shadow-sm"
+              title="Export documents in various formats"
+            >
+              <Download className="w-4 h-4 text-[#1a73e8]" />
+              <span className="hidden sm:inline">Export</span>
+              {selectedCount > 0 && (
+                <span className="ml-1 bg-[#1a73e8] text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full">
+                  {selectedCount}
+                </span>
+              )}
+              <ChevronDown className="w-3.5 h-3.5 text-[#5f6368]" />
+            </button>
 
-          {showExportMenu && (
-            <>
-              <div 
-                className="fixed inset-0 z-40" 
-                onClick={() => setShowExportMenu(false)}
-              />
-              <div className="absolute right-0 mt-2 w-64 bg-white border border-[#dadce0] rounded-xl shadow-xl py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100">
-                <div className="px-3 py-1.5 text-xs font-semibold text-[#5f6368] uppercase tracking-wider">
-                  Export Options
-                </div>
-                {selectedCount > 0 && (
+            {showExportMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setShowExportMenu(false)}
+                />
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-[#dadce0] rounded-xl shadow-xl py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-3 py-1.5 text-xs font-semibold text-[#5f6368] uppercase tracking-wider">
+                    Export Options
+                  </div>
+                  {selectedCount > 0 && (
+                    <button
+                      onClick={() => {
+                        onExportSelected();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-medium"
+                    >
+                      <CheckSquare className="w-4 h-4 text-[#1a73e8]" />
+                      Export Selected ({selectedCount}) as ZIP
+                    </button>
+                  )}
+                  {activeDocument && activeDocument.hasFile && (
+                    <>
+                      <button
+                        onClick={() => {
+                          onExportCurrent();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <Download className="w-4 h-4 text-[#5f6368]" />
+                        Download Original ({activeDocument.fileType.toUpperCase()})
+                      </button>
+                      <button
+                        onClick={() => {
+                          onExportCurrentAsPdf();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <FileTypeIcon className="w-4 h-4 text-[#d93025]" />
+                        Convert &amp; Export as PDF
+                      </button>
+                      <button
+                        onClick={() => {
+                          onExportCurrentAsJpg();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <ImageIcon className="w-4 h-4 text-[#1a73e8]" />
+                        Convert &amp; Export as JPG
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => {
-                      onExportSelected();
+                      onExportAll();
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-medium"
+                    className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors border-t border-[#f1f3f4]"
                   >
-                    <CheckSquare className="w-4 h-4 text-[#1a73e8]" />
-                    Export Selected ({selectedCount}) as ZIP
+                    <Archive className="w-4 h-4 text-[#5f6368]" />
+                    Export Entire Tab (ZIP)
                   </button>
-                )}
-                {activeDocument && activeDocument.hasFile && (
-                  <>
-                    <button
-                      onClick={() => {
-                        onExportCurrent();
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
-                    >
-                      <Download className="w-4 h-4 text-[#5f6368]" />
-                      Download Original ({activeDocument.fileType.toUpperCase()})
-                    </button>
-                    <button
-                      onClick={() => {
-                        onExportCurrentAsPdf();
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
-                    >
-                      <FileTypeIcon className="w-4 h-4 text-[#d93025]" />
-                      Convert &amp; Export as PDF
-                    </button>
-                    <button
-                      onClick={() => {
-                        onExportCurrentAsJpg();
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
-                    >
-                      <ImageIcon className="w-4 h-4 text-[#1a73e8]" />
-                      Convert &amp; Export as JPG
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => {
-                    onExportAll();
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors border-t border-[#f1f3f4]"
-                >
-                  <Archive className="w-4 h-4 text-[#5f6368]" />
-                  Export Entire Tab (ZIP)
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Share Button */}
-        <button
-          onClick={onOpenShare}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-lg transition-colors shadow-sm"
-          title="Share tab or documents with client with 4-digit PIN"
-        >
-          <Share2 className="w-4 h-4" />
-          <span className="hidden sm:inline">Share</span>
-        </button>
+        {selectedClient && (
+          <button
+            onClick={onOpenShare}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-lg transition-colors shadow-sm"
+            title="Share Document Uploader or Viewer with client (4-digit PIN)"
+          >
+            <Share2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
 
         {/* Lock Screen / Privacy Button */}
         <button

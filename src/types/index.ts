@@ -4,10 +4,30 @@ export type DocumentStatus = 'missing' | 'disapproved' | 'pending' | 'approved';
 
 export type ShareType = 'viewer' | 'uploader'; // Document viewer vs Document uploader
 
-export interface CollectionTab {
+export type ClientPriority = 'urgent' | 'high' | 'normal' | 'low';
+
+export interface ClientRecord {
   id: string;
   name: string;
-  clientName?: string;
+  phone: string;
+  email: string;
+  cameFor: string; // Purpose: e.g. "Spouse Visa & Settlement", "Indefinite Leave to Remain"
+  priority: ClientPriority;
+  totalDocCost: number; // Total cost for sending docs / courier / registry fees
+  totalAskingAmount: number; // Total solicitor agreed fee
+  amountPaid: number; // Amount already paid
+  firstVisitDate: string;
+  lastVisitDate: string;
+  visitCount: number; // e.g. came 4 times
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionTab {
+  id: string;
+  clientId: string; // Linked client ID
+  name: string; // e.g. "Application in 2024", "Wife Application in 2025"
   caseNumber?: string;
   icon?: string;
   isDefault?: boolean;
@@ -17,8 +37,9 @@ export interface CollectionTab {
 
 export interface DocumentItem {
   id: string;
-  name: string;
+  clientId?: string;
   collectionId: string;
+  name: string;
   fileType: FileType;
   fileSize: number; // in bytes
   url: string; // Object URL, base64 data URL, or remote Supabase storage URL
@@ -48,6 +69,7 @@ export interface ShareRecord {
   ownerEmail?: string;
   companyName?: string;
   companyLogo?: string;
+  clientId?: string;
 }
 
 export interface SolicitorProfile {
@@ -73,5 +95,5 @@ export interface ViewerState {
   isPanning: boolean;
 }
 
-export type SortField = 'date' | 'name' | 'status';
+export type SortField = 'date' | 'name' | 'priority' | 'fee';
 export type SortDirection = 'asc' | 'desc';

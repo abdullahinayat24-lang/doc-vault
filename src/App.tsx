@@ -5,9 +5,12 @@ import {
   ShareRecord, 
   SolicitorProfile, 
   FileType, 
-  DocumentStatus 
+  DocumentStatus,
+  ClientRecord 
 } from './types';
 import { 
+  getClients,
+  saveClients,
   getInitialTabs, 
   saveTabs, 
   getInitialDocuments, 
@@ -30,6 +33,8 @@ import { ShareModal } from './components/Modals/ShareModal';
 import { LockScreenModal } from './components/Modals/LockScreenModal';
 import { AuthModal } from './components/Modals/AuthModal';
 import { SharedViewer } from './components/SharedViewer';
+import { CompanyDashboard } from './components/CompanyDashboard';
+import { NewClientModal } from './components/Modals/NewClientModal';
 
 export function App() {
   // Check if viewing a shared link (?share=...)
@@ -38,29 +43,32 @@ export function App() {
     return params.get('share');
   });
 
-  // Main application state
+  // Main state
   const [user, setUser] = useState<SolicitorProfile>(() => getSolicitorProfile());
+  const [clients, setClients] = useState<ClientRecord[]>(() => getClients());
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+
   const [tabs, setTabs] = useState<CollectionTab[]>(() => getInitialTabs());
   const [documents, setDocuments] = useState<DocumentItem[]>(() => getInitialDocuments());
-  const [activeTabId, setActiveTabId] = useState<string>(() => {
-    const initial = getInitialTabs();
-    return initial[0]?.id || 'tab-app-2024';
-  });
-  const [activeDocId, setActiveDocId] = useState<string | null>(() => {
-    const initialDocs = getInitialDocuments();
-    return initialDocs[0]?.id || null;
-  });
+  
+  const [activeTabId, setActiveTabId] = useState<string>('tab-app-2024');
+  const [activeDocId, setActiveDocId] = useState<string | null>('doc-pass-2024');
 
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortOption, setSortOption] = useState<'date' | 'name'>('date');
 
-  // Modal states
+  // Modals
   const [isLocked, setIsLocked] = useState<boolean>(false);
   const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [isNewClientOpen, setIsNewClientOpen] = useState<boolean>(false);
 
-  // Sync state to storage
+  // Sync to localStorage
+  useEffect(() => {
+    saveClients(clients);
+  }, [clients]);
+
   useEffect(() => {
     saveTabs(tabs);
   }, [tabs]);
@@ -73,7 +81,7 @@ export function App() {
     saveSolicitorProfile(user);
   }, [user]);
 
-  // Handle URL change / back button
+  // Handle URL change
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -83,29 +91,44 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Selected client object
+  const selectedClient = useMemo(() => {
+    if (!selectedClientId) return null;
+    return clients.find((c) => c.id === selectedClientId) || null;
+  }, [clients, selectedClientId]);
+
+  // Filter tabs for the selected client
+  const clientTabs = useMemo(() => {
+    if (!selectedClientId) return tabs;
+    const filtered = tabs.filter((t) => t.clientId === selectedClientId);
+    if (filtered.length === 0) return tabs;
+    return filtered;
+  }, [tabs, selectedClientId]);
+
   // Sorted tabs
   const sortedTabs = useMemo(() => {
-    return [...tabs].sort((a, b) => {
+    return [...clientTabs].sort((a, b) => {
       if (sortOption === 'name') {
         return a.name.localeCompare(b.name);
       }
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [tabs, sortOption]);
+  }, [clientTabs, sortOption]);
 
   // Current active collection tab
   const activeTab = useMemo(() => {
-    return tabs.find((t) => t.id === activeTabId) || tabs[0] || {
+    return sortedTabs.find((t) => t.id === activeTabId) || sortedTabs[0] || {
       id: 'default',
+      clientId: selectedClientId || 'default',
       name: 'All Documents',
       createdAt: new Date().toISOString()
     };
-  }, [tabs, activeTabId]);
+  }, [sortedTabs, activeTabId, selectedClientId]);
 
-  // Documents under the active tab, filtered by search query
+  // Documents under the active tab
   const tabDocuments = useMemo(() => {
     return documents
-      .filter((d) => d.collectionId === activeTabId)
+      .filter((d) => d.collectionId === activeTab.id)
       .filter((d) => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -117,9 +140,9 @@ export function App() {
         }
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
-  }, [documents, activeTabId, searchQuery, sortOption]);
+  }, [documents, activeTab.id, searchQuery, sortOption]);
 
-  // Currently active document
+  // Active document
   const activeDoc = useMemo(() => {
     if (!activeDocId) return tabDocuments.find(d => d.hasFile) || tabDocuments[0] || null;
     return documents.find((d) => d.id === activeDocId) || null;
@@ -133,7 +156,7 @@ export function App() {
   // Document status counts per tab
   const documentCounts = useMemo(() => {
     const counts: Record<string, { total: number; missing: number; approved: number }> = {};
-    tabs.forEach((tab) => {
+    clientTabs.forEach((tab) => {
       const tabDocs = documents.filter((d) => d.collectionId === tab.id);
       const missing = tabDocs.filter((d) => d.status === 'missing' || d.status === 'disapproved').length;
       const approved = tabDocs.filter((d) => d.status === 'approved').length;
@@ -144,14 +167,64 @@ export function App() {
       };
     });
     return counts;
-  }, [tabs, documents]);
+  }, [clientTabs, documents]);
 
-  // Handlers for collections
-  const handleCreateTab = (name: string, clientName?: string) => {
+  // Handle client selection (opens Level 2 document workspace)
+  const handleSelectClient = (client: ClientRecord) => {
+    setSelectedClientId(client.id);
+    const clientFirstTab = tabs.find((t) => t.clientId === client.id);
+    if (clientFirstTab) {
+      setActiveTabId(clientFirstTab.id);
+      const firstDoc = documents.find((d) => d.collectionId === clientFirstTab.id);
+      if (firstDoc) {
+        setActiveDocId(firstDoc.id);
+      }
+    }
+  };
+
+  // Add new client
+  const handleAddClient = (newClient: ClientRecord) => {
+    setClients((prev) => [newClient, ...prev]);
+    // Also create their first initial case tab
+    const initialTab: CollectionTab = {
+      id: 'tab_' + Math.random().toString(36).substring(2, 9),
+      clientId: newClient.id,
+      name: newClient.cameFor || 'Case Application',
+      caseNumber: `${newClient.name.substring(0, 2).toUpperCase()}-2026`,
+      icon: 'briefcase',
+      isDefault: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setTabs((prev) => [...prev, initialTab]);
+    handleSelectClient(newClient);
+  };
+
+  const handleDeleteClient = (clientId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm('Delete this client record and associated case documents?')) {
+      setClients((prev) => prev.filter((c) => c.id !== clientId));
+      setTabs((prev) => prev.filter((t) => t.clientId !== clientId));
+      setDocuments((prev) => prev.filter((d) => d.clientId !== clientId));
+      if (selectedClientId === clientId) {
+        setSelectedClientId(null);
+      }
+    }
+  };
+
+  const handleQuickShareClient = (client: ClientRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    handleSelectClient(client);
+    setIsShareOpen(true);
+  };
+
+  // Tab operations
+  const handleCreateTab = (name: string) => {
+    if (!selectedClientId) return;
     const newTab: CollectionTab = {
       id: 'tab_' + Math.random().toString(36).substring(2, 9),
+      clientId: selectedClientId,
       name,
-      clientName,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -167,18 +240,18 @@ export function App() {
   };
 
   const handleDeleteTab = (tabId: string) => {
-    if (tabs.length <= 1) return;
-    if (confirm('Are you sure you want to delete this tab and all its documents?')) {
+    if (clientTabs.length <= 1) return;
+    if (confirm('Delete this tab and its documents?')) {
       setTabs((prev) => prev.filter((t) => t.id !== tabId));
       setDocuments((prev) => prev.filter((d) => d.collectionId !== tabId));
-      if (activeTabId === tabId) {
-        const remaining = tabs.filter((t) => t.id !== tabId);
+      const remaining = clientTabs.filter((t) => t.id !== tabId);
+      if (remaining.length > 0) {
         setActiveTabId(remaining[0].id);
       }
     }
   };
 
-  // Upload multiple new files
+  // Document uploads
   const handleUploadFiles = async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
     const newItems: DocumentItem[] = [];
@@ -193,13 +266,14 @@ export function App() {
 
       newItems.push({
         id: 'doc_' + Math.random().toString(36).substring(2, 9),
+        clientId: selectedClientId || undefined,
+        collectionId: activeTab.id,
         name: file.name,
-        collectionId: activeTabId,
         fileType,
         fileSize: file.size,
         url,
         hasFile: true,
-        status: 'pending', // White / Normal by default
+        status: 'pending',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
@@ -211,7 +285,6 @@ export function App() {
     }
   };
 
-  // Upload file into an existing missing document requirement slot
   const handleUploadToFileSlot = async (docId: string, file: File) => {
     const fileType = detectFileType(file.name, file.type);
     const url = await new Promise<string>((resolve) => {
@@ -230,7 +303,7 @@ export function App() {
             fileSize: file.size,
             url,
             hasFile: true,
-            status: 'pending', // Changes from Missing (Red) to Uploaded (Normal White)
+            status: 'pending',
             updatedAt: new Date().toISOString()
           };
         }
@@ -240,13 +313,13 @@ export function App() {
     setActiveDocId(docId);
   };
 
-  // Create document requirement slot (Marked RED until uploaded)
   const handleCreateDocumentSlot = (title: string, fileType: FileType) => {
     const formattedName = title.includes('.') ? title : `${title}.${fileType}`;
     const newSlot: DocumentItem = {
       id: 'doc_req_' + Math.random().toString(36).substring(2, 9),
+      clientId: selectedClientId || undefined,
+      collectionId: activeTab.id,
       name: formattedName,
-      collectionId: activeTabId,
       fileType,
       fileSize: 0,
       url: '',
@@ -259,7 +332,6 @@ export function App() {
     setDocuments((prev) => [newSlot, ...prev]);
   };
 
-  // Update status: Approved (Green) or Disapproved (Red) or Pending (White)
   const handleUpdateDocumentStatus = (docId: string, status: DocumentStatus, notes?: string) => {
     setDocuments((prev) =>
       prev.map((d) => {
@@ -276,7 +348,6 @@ export function App() {
     );
   };
 
-  // Delete document
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this document item?')) {
@@ -288,7 +359,6 @@ export function App() {
     }
   };
 
-  // Select all toggle
   const handleToggleSelectAll = () => {
     if (selectedDocIds.length === tabDocuments.length) {
       setSelectedDocIds([]);
@@ -304,34 +374,7 @@ export function App() {
     );
   };
 
-  // Exports
-  const handleExportSelected = () => {
-    exportMultipleDocuments(selectedDocuments, `${activeTab.name}_Selected.zip`);
-  };
-
-  const handleExportCurrent = () => {
-    if (activeDoc) {
-      exportSingleDocument(activeDoc);
-    }
-  };
-
-  const handleExportCurrentAsPdf = () => {
-    if (activeDoc) {
-      exportAsPdf(activeDoc);
-    }
-  };
-
-  const handleExportCurrentAsJpg = () => {
-    if (activeDoc) {
-      exportAsJpg(activeDoc);
-    }
-  };
-
-  const handleExportAllInTab = () => {
-    exportMultipleDocuments(tabDocuments, `${activeTab.name}_Complete.zip`);
-  };
-
-  // If a shared link is opened (?share=...)
+  // If viewing a shared link (?share=...)
   if (shareParam) {
     const shares = getShares();
     const shareRecord = shares.find((s) => s.id === shareParam) || null;
@@ -375,9 +418,11 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35]">
-      {/* Google-styled Top Header */}
+      {/* Top Header */}
       <Header
         user={user}
+        selectedClient={selectedClient}
+        onBackToClients={() => setSelectedClientId(null)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onLockSession={() => setIsLocked(true)}
@@ -390,71 +435,89 @@ export function App() {
         }}
         selectedCount={selectedDocIds.length}
         activeDocument={activeDoc}
-        onExportSelected={handleExportSelected}
-        onExportCurrent={handleExportCurrent}
-        onExportCurrentAsPdf={handleExportCurrentAsPdf}
-        onExportCurrentAsJpg={handleExportCurrentAsJpg}
-        onExportAll={handleExportAllInTab}
+        onExportSelected={() => exportMultipleDocuments(selectedDocuments, `${activeTab.name}_Selected.zip`)}
+        onExportCurrent={() => activeDoc && exportSingleDocument(activeDoc)}
+        onExportCurrentAsPdf={() => activeDoc && exportAsPdf(activeDoc)}
+        onExportCurrentAsJpg={() => activeDoc && exportAsJpg(activeDoc)}
+        onExportAll={() => exportMultipleDocuments(tabDocuments, `${activeTab.name}_Complete.zip`)}
       />
 
-      {/* Collection Tabs Bar */}
-      <CollectionTabs
-        tabs={sortedTabs}
-        activeTabId={activeTabId}
-        onSelectTab={(id) => {
-          setActiveTabId(id);
-          setSelectedDocIds([]);
-        }}
-        onCreateTab={handleCreateTab}
-        onRenameTab={handleRenameTab}
-        onDeleteTab={handleDeleteTab}
-        onShareTab={(tabId) => {
-          setActiveTabId(tabId);
-          setIsShareOpen(true);
-        }}
-        documentCounts={documentCounts}
-        sortOption={sortOption}
-        onToggleSort={() => setSortOption((prev) => (prev === 'date' ? 'name' : 'date'))}
-      />
-
-      {/* Main Workspace Body */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Documents List Sidebar */}
-        <DocumentList
-          documents={tabDocuments}
-          activeDocumentId={activeDocId}
-          onSelectDocument={(doc) => setActiveDocId(doc.id)}
-          selectedDocIds={selectedDocIds}
-          onToggleSelectDoc={handleToggleSelectDoc}
-          onToggleSelectAll={handleToggleSelectAll}
-          onUploadFiles={handleUploadFiles}
-          onUploadToFileSlot={handleUploadToFileSlot}
-          onCreateDocumentSlot={handleCreateDocumentSlot}
-          onUpdateDocumentStatus={handleUpdateDocumentStatus}
-          onDeleteDocument={handleDeleteDocument}
-          onShareDocument={(doc, e) => {
-            e.stopPropagation();
-            setActiveDocId(doc.id);
-            setIsShareOpen(true);
-          }}
-          onExportDocument={(doc, e) => {
-            e.stopPropagation();
-            exportSingleDocument(doc);
-          }}
-          tabTitle={activeTab.name}
+      {/* LEVEL 1: Main Company Page & Clients Directory */}
+      {!selectedClient ? (
+        <CompanyDashboard
+          solicitor={user}
+          clients={clients}
+          tabs={tabs}
+          documents={documents}
+          onSelectClient={handleSelectClient}
+          onOpenNewClientModal={() => setIsNewClientOpen(true)}
+          onDeleteClient={handleDeleteClient}
+          onQuickShareClient={handleQuickShareClient}
+          onEditCompanyProfile={() => setIsAuthOpen(true)}
         />
+      ) : (
+        /* LEVEL 2: Client's Case Tabs & Document Vault */
+        <>
+          {/* Collection Tabs Bar */}
+          <CollectionTabs
+            tabs={sortedTabs}
+            activeTabId={activeTab.id}
+            onSelectTab={(id) => {
+              setActiveTabId(id);
+              setSelectedDocIds([]);
+            }}
+            onCreateTab={handleCreateTab}
+            onRenameTab={handleRenameTab}
+            onDeleteTab={handleDeleteTab}
+            onShareTab={(tabId) => {
+              setActiveTabId(tabId);
+              setIsShareOpen(true);
+            }}
+            documentCounts={documentCounts}
+            sortOption={sortOption}
+            onToggleSort={() => setSortOption((prev) => (prev === 'date' ? 'name' : 'date'))}
+          />
 
-        {/* Master Document Viewer */}
-        <DocumentViewer
-          document={activeDoc}
-          onExport={exportSingleDocument}
-          onExportAsPdf={exportAsPdf}
-          onExportAsJpg={exportAsJpg}
-          onShare={() => setIsShareOpen(true)}
-          onUpdateStatus={handleUpdateDocumentStatus}
-          isReadOnly={false}
-        />
-      </div>
+          {/* Document Workspace */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left Documents List */}
+            <DocumentList
+              documents={tabDocuments}
+              activeDocumentId={activeDocId}
+              onSelectDocument={(doc) => setActiveDocId(doc.id)}
+              selectedDocIds={selectedDocIds}
+              onToggleSelectDoc={handleToggleSelectDoc}
+              onToggleSelectAll={handleToggleSelectAll}
+              onUploadFiles={handleUploadFiles}
+              onUploadToFileSlot={handleUploadToFileSlot}
+              onCreateDocumentSlot={handleCreateDocumentSlot}
+              onUpdateDocumentStatus={handleUpdateDocumentStatus}
+              onDeleteDocument={handleDeleteDocument}
+              onShareDocument={(doc, e) => {
+                e.stopPropagation();
+                setActiveDocId(doc.id);
+                setIsShareOpen(true);
+              }}
+              onExportDocument={(doc, e) => {
+                e.stopPropagation();
+                exportSingleDocument(doc);
+              }}
+              tabTitle={activeTab.name}
+            />
+
+            {/* Master Document Viewer */}
+            <DocumentViewer
+              document={activeDoc}
+              onExport={exportSingleDocument}
+              onExportAsPdf={exportAsPdf}
+              onExportAsJpg={exportAsJpg}
+              onShare={() => setIsShareOpen(true)}
+              onUpdateStatus={handleUpdateDocumentStatus}
+              isReadOnly={false}
+            />
+          </div>
+        </>
+      )}
 
       {/* Modals */}
       <ShareModal
@@ -478,6 +541,12 @@ export function App() {
         onClose={() => setIsAuthOpen(false)}
         currentUser={user}
         onSaveUser={setUser}
+      />
+
+      <NewClientModal
+        isOpen={isNewClientOpen}
+        onClose={() => setIsNewClientOpen(false)}
+        onAddClient={handleAddClient}
       />
     </div>
   );

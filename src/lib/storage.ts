@@ -1,15 +1,32 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
-import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus } from '../types';
-import { initialTabs, initialDocuments, initialSolicitorProfile } from './sampleDocs';
+import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord } from '../types';
+import { initialTabs, initialDocuments, initialSolicitorProfile, initialClients } from './sampleDocs';
 import { supabase, isSupabaseConfigured } from './supabase';
 
+const CLIENTS_KEY = 'docvault_clients';
 const TABS_KEY = 'docvault_collection_tabs';
 const DOCS_KEY = 'docvault_documents';
 const SHARES_KEY = 'docvault_shares';
 const PROFILE_KEY = 'docvault_solicitor_profile';
 const PIN_KEY = 'docvault_lock_pin';
+
+export const getClients = (): ClientRecord[] => {
+  const saved = localStorage.getItem(CLIENTS_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+  }
+  return initialClients;
+};
+
+export const saveClients = (clients: ClientRecord[]) => {
+  localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+};
 
 export const getInitialTabs = (): CollectionTab[] => {
   const saved = localStorage.getItem(TABS_KEY);
@@ -120,7 +137,6 @@ export const urlToBlob = async (url: string): Promise<Blob> => {
   return await response.blob();
 };
 
-// Convert image/url to Image element
 const loadImage = (src: string): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -131,7 +147,6 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
   });
 };
 
-// Export original format
 export const exportSingleDocument = async (doc: DocumentItem) => {
   if (!doc.hasFile || !doc.url) {
     alert('This is a document requirement placeholder. No file has been uploaded yet.');
@@ -149,7 +164,6 @@ export const exportSingleDocument = async (doc: DocumentItem) => {
   }
 };
 
-// Convert and export as PDF
 export const exportAsPdf = async (doc: DocumentItem) => {
   if (!doc.hasFile || !doc.url) return;
 
@@ -158,7 +172,6 @@ export const exportAsPdf = async (doc: DocumentItem) => {
   }
 
   try {
-    // If it's an image, convert to PDF page using jsPDF
     const img = await loadImage(doc.url);
     const pdf = new jsPDF({
       orientation: img.width > img.height ? 'landscape' : 'portrait',
@@ -174,7 +187,6 @@ export const exportAsPdf = async (doc: DocumentItem) => {
   }
 };
 
-// Convert and export as JPG/JPEG
 export const exportAsJpg = async (doc: DocumentItem) => {
   if (!doc.hasFile || !doc.url) return;
 
@@ -201,7 +213,6 @@ export const exportAsJpg = async (doc: DocumentItem) => {
   }
 };
 
-// Export multiple documents as a ZIP
 export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName: string = 'DocVault_Export.zip') => {
   const availableDocs = docs.filter(d => d.hasFile && d.url);
   if (availableDocs.length === 0) {
