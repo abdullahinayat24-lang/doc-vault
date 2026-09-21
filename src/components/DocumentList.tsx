@@ -426,7 +426,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           ) : (
             <div className="flex items-center gap-1.5 group/name">
               <p 
-                className="text-xs sm:text-sm font-semibold truncate leading-tight flex-1 text-[#202124]"
+                className="text-xs sm:text-sm font-semibold leading-tight flex-1 text-[#202124] break-words"
                 title={`${doc.name} (Double-click to rename)`}
                 onDoubleClick={(e) => {
                   if (onRenameDocument) handleStartEditing(doc, e);
@@ -676,7 +676,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               </div>
             ) : (
               <span 
-                className="font-semibold text-xs text-[#202124] truncate flex-1 leading-snug"
+                className="font-semibold text-xs text-[#202124] flex-1 leading-snug break-words"
                 title={`${folder.name} (Double-click to rename)`}
                 onDoubleClick={(e) => handleStartRenameFolder(folder, e)}
               >
