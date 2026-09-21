@@ -118,15 +118,15 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     onSaveShare(newRecord);
 
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
+    const cleanShortUrl = `${baseUrl}?share=${shareId}`;
 
     // 1. Direct Supabase Cloud Storage (instant, enterprise reliable, no rate limits)
     if (isSupabaseConfigured()) {
       syncShareToSupabase(newRecord, targetDocs, targetFolders).catch((e) => console.warn('Supabase share error:', e));
-      const directCleanUrl = `${baseUrl}?share=${shareId}`;
-      setGeneratedLink(directCleanUrl);
+      setGeneratedLink(cleanShortUrl);
       setIsGenerating(false);
 
-      // Background mirror to bytebin for extra redundancy
+      // Background mirror to bytebin for cross-device redundancy
       fetch('https://bytebin.lucko.me/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +135,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       return;
     }
 
-    // 2. Fallback: post to bytebin
+    // 2. Post to Bytebin worldwide fast cloud store
     try {
       const res = await fetch('https://bytebin.lucko.me/post', {
         method: 'POST',
@@ -148,8 +148,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           const cloudShareId = data.key;
           const cloudRecord = { ...newRecord, id: cloudShareId };
           onSaveShare(cloudRecord);
-          const shortCleanUrl = `${baseUrl}?share=${cloudShareId}`;
-          setGeneratedLink(shortCleanUrl);
+          setGeneratedLink(`${baseUrl}?share=${cloudShareId}`);
           setIsGenerating(false);
           return;
         }
@@ -158,17 +157,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       console.warn('Cloud share store sync note:', err);
     }
 
-    // 3. Fallback: encode compact hash payload into URL if offline
-    let fallbackUrl = `${baseUrl}?share=${shareId}`;
-    try {
-      const jsonStr = JSON.stringify(payloadToSend);
-      const encodedData = btoa(encodeURIComponent(jsonStr));
-      fallbackUrl = `${baseUrl}?share=${shareId}#data=${encodedData}`;
-    } catch (e) {
-      console.warn('Fallback encoding error:', e);
-    }
-
-    setGeneratedLink(fallbackUrl);
+    // Always keep URL clean and ultra-short (never append huge data hashes)
+    setGeneratedLink(cleanShortUrl);
     setIsGenerating(false);
   };
 

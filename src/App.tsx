@@ -145,7 +145,7 @@ export function App() {
 
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [sortOption, setSortOption] = useState<'date' | 'name'>('date');
+  const [sortOption, setSortOption] = useState<'manual' | 'date' | 'name'>('manual');
 
   // Modals
   const [isLocked, setIsLocked] = useState<boolean>(false);
@@ -309,7 +309,11 @@ export function App() {
         if (sortOption === 'name') {
           return a.name.localeCompare(b.name);
         }
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        if (sortOption === 'date') {
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }
+        // 'manual': preserve exact user ordered position
+        return 0;
       });
   }, [documents, activeTab.id, searchQuery, sortOption]);
 
@@ -838,6 +842,7 @@ export function App() {
   };
 
   const handleReorderDocument = (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => {
+    setSortOption('manual');
     setDocuments(prev => {
       const result = [...prev];
       const srcIdx = result.findIndex(d => d.id === sourceDocId);
@@ -850,8 +855,25 @@ export function App() {
       const newTgtIdx = result.findIndex(d => d.id === targetDocId);
       if (newTgtIdx < 0) return prev;
       result.splice(position === 'before' ? newTgtIdx : newTgtIdx + 1, 0, moved);
-      saveDocuments(result);
+      saveDocuments(result, user?.id);
       return result;
+    });
+  };
+
+  const handleMoveDocPosition = (docId: string, direction: 'up' | 'down') => {
+    setSortOption('manual');
+    setDocuments((prev) => {
+      const idx = prev.findIndex((d) => d.id === docId);
+      if (idx < 0) return prev;
+      if (direction === 'up' && idx === 0) return prev;
+      if (direction === 'down' && idx === prev.length - 1) return prev;
+
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      const copy = [...prev];
+      const [moved] = copy.splice(idx, 1);
+      copy.splice(targetIdx, 0, moved);
+      saveDocuments(copy, user?.id);
+      return copy;
     });
   };
 
@@ -1052,6 +1074,10 @@ export function App() {
                   e.stopPropagation();
                   exportSingleDocument(doc);
                 }}
+                onExportAsJpg={(doc, e) => {
+                  e?.stopPropagation();
+                  exportAsJpg(doc);
+                }}
                 onOpenUploadModal={() => setIsUploadModalOpen(true)}
                 onAddPageToDoc={handleAddPageToDoc}
                 onRenameDocument={handleRenameDocument}
@@ -1062,6 +1088,7 @@ export function App() {
                 onMoveDocToFolder={handleMoveDocToFolder}
                 onUploadFilesToFolder={handleUploadFilesToFolder}
                 onReorderDocument={handleReorderDocument}
+                onMoveDocPosition={handleMoveDocPosition}
                 onCreateBlankDoc={handleCreateBlankDoc}
                 onSyncLocalDocs={handleSyncLocalDocs}
                 tabTitle={activeTab.name}

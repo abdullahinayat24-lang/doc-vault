@@ -26,7 +26,9 @@ import {
   Edit2,
   Check,
   X,
-  FileText
+  FileText,
+  ChevronDown,
+  Image as ImageIcon
 } from 'lucide-react';
 import { DocumentItem, DocumentStatus } from '../../types';
 import { ImageViewer } from './ImageViewer';
@@ -75,6 +77,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [viewLayout, setViewLayout] = useState<'single' | 'side-by-side' | 'scroll'>('single');
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [nameInput, setNameInput] = useState<string>('');
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const addPageInputRef = useRef<HTMLInputElement>(null);
 
@@ -484,14 +487,67 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           )}
 
           {document.hasFile && (
-            <button
-              onClick={() => onExport(document)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#202124] bg-white hover:bg-[#f1f3f4] border border-[#dadce0] rounded-lg transition-colors shadow-xs"
-              title="Download original file"
-            >
-              <Download className="w-3.5 h-3.5 text-[#1a73e8]" />
-              <span className="hidden sm:inline">Download</span>
-            </button>
+            <div className="relative">
+              <div className="flex items-center">
+                <button
+                  onClick={() => onExport(document)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#202124] bg-white hover:bg-[#f1f3f4] border border-[#dadce0] rounded-l-lg transition-colors shadow-xs"
+                  title="Download original file"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#1a73e8]" />
+                  <span className="hidden sm:inline">Download</span>
+                </button>
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="p-1.5 bg-white hover:bg-[#f1f3f4] border-y border-r border-[#dadce0] rounded-r-lg transition-colors text-[#5f6368] hover:text-[#202124]"
+                  title="Export options (JPG, PDF, Original)"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {showExportMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 w-60 bg-white border border-[#dadce0] rounded-xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      onClick={() => {
+                        onExport(document);
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                    >
+                      <Download className="w-4 h-4 text-[#5f6368]" />
+                      <span>Download Original ({document.fileType.toUpperCase()})</span>
+                    </button>
+                    {onExportAsJpg && (
+                      <button
+                        onClick={() => {
+                          onExportAsJpg(document);
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-medium"
+                      >
+                        <ImageIcon className="w-4 h-4 text-[#1a73e8]" />
+                        <span>Convert &amp; Export as JPG</span>
+                      </button>
+                    )}
+                    {onExportAsPdf && (
+                      <button
+                        onClick={() => {
+                          onExportAsPdf(document);
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-3.5 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <FileText className="w-4 h-4 text-[#d93025]" />
+                        <span>Convert &amp; Export as PDF</span>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           <button

@@ -1,9 +1,16 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
+import * as pdfjsLib from 'pdfjs-dist';
+import mammoth from 'mammoth';
 import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { idbSaveDocuments, idbGetDocuments } from './idbStorage';
+
+// Configure PDF.js worker for storage operations
+if (typeof window !== 'undefined' && 'Worker' in window && !pdfjsLib.GlobalWorkerOptions?.workerSrc) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+}
 
 export { idbGetDocuments, idbSaveDocuments };
 
@@ -709,6 +716,172 @@ export const urlToBlob = async (url: string): Promise<Blob> => {
   return await response.blob();
 };
 
+export const parseUrlToUint8Array = async (url: string): Promise<Uint8Array> => {
+  if (url.startsWith('data:')) {
+    const base64 = url.split(',')[1] || url;
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  }
+  const response = await fetch(url);
+  const ab = await response.arrayBuffer();
+  return new Uint8Array(ab);
+};
+
+export const convertTextOrHtmlToJpgBlob = async (
+  content: string,
+  title: string = 'Document'
+): Promise<Blob | null> => {
+  try {
+    const width = 1240;
+    const padding = 70;
+    const contentWidth = width - padding * 2;
+
+    // Extract human-readable text from HTML or markdown
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = content;
+    const rawText = tempDiv.innerText || tempDiv.textContent || content;
+    const paragraphs = rawText.split(/\r?\n/);
+
+    const testCanvas = document.createElement('canvas');
+    const testCtx = testCanvas.getContext('2d');
+    if (!testCtx) return null;
+
+    const fontTitle = 'bold 26px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    const fontBody = '18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+    const lineHeight = 28;
+
+    testCtx.font = fontBody;
+    const lines: string[] = [];
+
+    for (const para of paragraphs) {
+      if (!para.trim()) {
+        lines.push('');
+        continue;
+      }
+      const words = para.split(' ');
+      let cur = '';
+      for (let i = 0; i < words.length; i++) {
+        const test = cur ? `${cur} ${words[i]}` : words[i];
+        if (testCtx.measureText(test).width > contentWidth && i > 0) {
+          lines.push(cur);
+          cur = words[i];
+        } else {
+          cur = test;
+        }
+      }
+      if (cur) lines.push(cur);
+    }
+
+    const headerHeight = 140;
+    const totalHeight = Math.max(1754, headerHeight + (lines.length + 3) * lineHeight + padding * 2);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = totalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    // Pure white canvas background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, totalHeight);
+
+    // Brand accent line on top
+    ctx.fillStyle = '#1a73e8';
+    ctx.fillRect(0, 0, width, 6);
+
+    // Document Title
+    ctx.font = fontTitle;
+    ctx.fillStyle = '#202124';
+    ctx.fillText(title, padding, 65);
+
+    // Divider line
+    ctx.strokeStyle = '#e8eaed';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(padding, 90);
+    ctx.lineTo(width - padding, 90);
+    ctx.stroke();
+
+    // Body text
+    ctx.font = fontBody;
+    ctx.fillStyle = '#3c4043';
+    let y = 135;
+
+    for (const line of lines) {
+      if (line) {
+        ctx.fillText(line, padding, y);
+      }
+      y += lineHeight;
+    }
+
+    // Footer
+    ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillStyle = '#9aa0a6';
+    ctx.fillText('Exported from DocVault', padding, totalHeight - 35);
+
+    return await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.95);
+    });
+  } catch (err) {
+    console.warn('convertTextOrHtmlToJpgBlob error:', err);
+    return null;
+  }
+};
+
+export const convertPdfToJpgBlobs = async (
+  pdfSource: string | Uint8Array,
+  userRotation: number = 0
+): Promise<{ pageNumber: number; blob: Blob }[]> => {
+  if (typeof window !== 'undefined' && 'Worker' in window && !pdfjsLib.GlobalWorkerOptions?.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+  }
+
+  let sourceParam: any;
+  if (typeof pdfSource === 'string') {
+    const bytes = await parseUrlToUint8Array(pdfSource);
+    sourceParam = { data: bytes };
+  } else {
+    sourceParam = { data: pdfSource };
+  }
+
+  const loadingTask = pdfjsLib.getDocument(sourceParam);
+  const pdf = await loadingTask.promise;
+  const results: { pageNumber: number; blob: Blob }[] = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const totalRotation = ((page.rotate || 0) + (userRotation || 0)) % 360;
+    const viewport = page.getViewport({ scale: 2.0, rotation: totalRotation });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) continue;
+
+    // Fill pure white background (crucial: transparent canvas turns black when saved as image/jpeg)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    await page.render({
+      canvasContext: ctx,
+      viewport: viewport
+    }).promise;
+
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+    if (blob) {
+      results.push({ pageNumber: pageNum, blob });
+    }
+  }
+
+  return results;
+};
+
 const loadImage = (src: string): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -777,15 +950,42 @@ export const exportSingleDocument = async (doc: DocumentItem) => {
 };
 
 export const exportAsPdf = async (doc: DocumentItem) => {
-  if (!doc.hasFile || !doc.url) return;
+  if (!doc.hasFile && !doc.content && !doc.url) {
+    alert('This is a document requirement placeholder. No file has been uploaded yet.');
+    return;
+  }
 
-  // If multi-page document (e.g. Front & Back)
+  const cleanDocName = (doc.name || 'Document').replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+
+  // 1. If it is already a PDF file, downloading it as PDF is already 100% correct!
+  if (doc.fileType === 'pdf' && doc.url) {
+    return exportSingleDocument(doc);
+  }
+
+  // 2. If multi-side/page document (e.g. Front & Back photos)
   if (doc.pages && doc.pages.length > 1) {
     try {
       let pdf: jsPDF | null = null;
       for (let i = 0; i < doc.pages.length; i++) {
         const page = doc.pages[i];
-        if (page.fileType === 'pdf') continue;
+        if (page.fileType === 'pdf') {
+          const pdfJpgs = await convertPdfToJpgBlobs(page.url, page.rotation || 0);
+          for (const item of pdfJpgs) {
+            const pageImgUrl = URL.createObjectURL(item.blob);
+            const img = await loadImage(pageImgUrl);
+            URL.revokeObjectURL(pageImgUrl);
+            const orientation = img.width > img.height ? 'landscape' : 'portrait';
+            if (!pdf) {
+              pdf = new jsPDF({ orientation, unit: 'px', format: [img.width, img.height] });
+              pdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+            } else {
+              pdf.addPage([img.width, img.height], orientation);
+              pdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+            }
+          }
+          continue;
+        }
+
         const img = await loadImage(page.url);
         const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
         const canvas = getRotatedCanvas(img, rot);
@@ -804,8 +1004,7 @@ export const exportAsPdf = async (doc: DocumentItem) => {
         }
       }
       if (pdf) {
-        const pdfName = doc.name.replace(/\.[^/.]+$/, "") + ".pdf";
-        pdf.save(pdfName);
+        pdf.save(`${cleanDocName}.pdf`);
         return;
       }
     } catch (err) {
@@ -813,79 +1012,236 @@ export const exportAsPdf = async (doc: DocumentItem) => {
     }
   }
 
-  if (doc.fileType === 'pdf') {
-    return exportSingleDocument(doc);
+  // 3. Word DOCX or Text / Note to PDF: convert to formatted canvas then save with jsPDF
+  const isDocxOrText = doc.fileType === 'docx' || doc.fileType === 'doc' || ['txt', 'md', 'rtf'].includes(doc.fileType) || doc.content;
+  if (isDocxOrText) {
+    try {
+      let textOrHtml = doc.content || '';
+      if (!textOrHtml && doc.url) {
+        if (doc.fileType === 'docx' || doc.name.endsWith('.docx')) {
+          const bytes = await parseUrlToUint8Array(doc.url);
+          const mammothResult = await mammoth.convertToHtml({ arrayBuffer: bytes.buffer as ArrayBuffer });
+          textOrHtml = mammothResult.value;
+        } else {
+          const bytes = await parseUrlToUint8Array(doc.url);
+          textOrHtml = new TextDecoder().decode(bytes);
+        }
+      }
+      if (textOrHtml) {
+        const jpgBlob = await convertTextOrHtmlToJpgBlob(textOrHtml, doc.name);
+        if (jpgBlob) {
+          const pageImgUrl = URL.createObjectURL(jpgBlob);
+          const img = await loadImage(pageImgUrl);
+          URL.revokeObjectURL(pageImgUrl);
+          const orientation = img.width > img.height ? 'landscape' : 'portrait';
+          const pdf = new jsPDF({
+            orientation,
+            unit: 'px',
+            format: [img.width, img.height]
+          });
+          pdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+          pdf.save(`${cleanDocName}.pdf`);
+          return;
+        }
+      }
+    } catch (docPdfErr) {
+      console.warn('DOCX/Text to PDF conversion note:', docPdfErr);
+    }
   }
 
-  try {
-    const img = await loadImage(doc.url);
-    const rot = doc.rotation || 0;
-    const canvas = getRotatedCanvas(img, rot);
-    const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
-    const pdf = new jsPDF({
-      orientation,
-      unit: 'px',
-      format: [canvas.width, canvas.height]
-    });
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
-    const pdfName = doc.name.replace(/\.[^/.]+$/, "") + ".pdf";
-    pdf.save(pdfName);
-  } catch (err) {
-    console.warn('PDF conversion fallback:', err);
-    exportSingleDocument(doc);
+  // 4. Standard Image to PDF
+  if (doc.url) {
+    try {
+      const img = await loadImage(doc.url);
+      const rot = doc.rotation || 0;
+      const canvas = getRotatedCanvas(img, rot);
+      const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+      const pdf = new jsPDF({
+        orientation,
+        unit: 'px',
+        format: [canvas.width, canvas.height]
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`${cleanDocName}.pdf`);
+      return;
+    } catch (err) {
+      console.warn('Image to PDF conversion fallback:', err);
+    }
   }
+
+  exportSingleDocument(doc);
 };
 
-export const exportAsJpg = async (doc: DocumentItem) => {
-  if (!doc.hasFile) return;
-
-  // If multi-side/page document (e.g. Front & Back), package all photos into a folder inside ZIP!
-  if (doc.pages && doc.pages.length > 1) {
-    const zip = new JSZip();
-    const cleanDocName = doc.name.replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
-    const folder = zip.folder(cleanDocName) || zip;
-
-    for (let i = 0; i < doc.pages.length; i++) {
-      const page = doc.pages[i];
-      try {
-        const img = await loadImage(page.url);
-        const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
-        const canvas = getRotatedCanvas(img, rot);
-        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
-        if (blob) {
-          const cleanPageName = (page.name || `Side_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-          folder.file(`${cleanPageName}.jpg`, blob);
-        }
-      } catch (err) {
-        console.warn(`Could not convert page ${i} to JPG:`, err);
-        try {
-          const blob = await urlToBlob(page.url);
-          folder.file(`${page.name || `Side_${i + 1}`}.jpg`, blob);
-        } catch {}
-      }
-    }
-
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    saveAs(zipBlob, `${cleanDocName}_Photos.zip`);
+export const exportAsJpg = async (doc: DocumentItem, targetPageIndex?: number) => {
+  if (!doc.hasFile && !doc.content && !doc.url) {
+    alert('This is a document requirement placeholder. No file has been uploaded yet.');
     return;
   }
 
-  // Single page
-  try {
-    const img = await loadImage(doc.url);
-    const rot = doc.rotation || 0;
-    const canvas = getRotatedCanvas(img, rot);
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const jpgName = doc.name.replace(/\.[^/.]+$/, "") + ".jpg";
-        saveAs(blob, jpgName);
+  const cleanDocName = (doc.name || 'Document').replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+
+  // 1. Multi-side / multi-page container (e.g. Front & Back photos or attached pages)
+  if (doc.pages && doc.pages.length > 1) {
+    // If user requested a specific page (0-indexed)
+    if (typeof targetPageIndex === 'number' && doc.pages[targetPageIndex]) {
+      const page = doc.pages[targetPageIndex];
+      const pageCleanName = (page.name || `Side_${targetPageIndex + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+      const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
+
+      try {
+        if (page.fileType === 'pdf' || (page.url && page.url.toLowerCase().includes('.pdf'))) {
+          const pdfJpgs = await convertPdfToJpgBlobs(page.url, rot);
+          if (pdfJpgs.length > 0) {
+            saveAs(pdfJpgs[0].blob, `${cleanDocName}_${pageCleanName}.jpg`);
+            return;
+          }
+        } else {
+          const img = await loadImage(page.url);
+          const canvas = getRotatedCanvas(img, rot);
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+          if (blob) {
+            saveAs(blob, `${cleanDocName}_${pageCleanName}.jpg`);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not export specific page ${targetPageIndex} to JPG:`, err);
       }
-    }, 'image/jpeg', 0.95);
-  } catch (err) {
-    console.warn('JPG export fallback:', err);
-    exportSingleDocument(doc);
+    }
+
+    // Export ALL pages/sides as real JPGs inside a ZIP archive
+    const zip = new JSZip();
+    const folder = zip.folder(cleanDocName) || zip;
+    let convertedCount = 0;
+
+    for (let i = 0; i < doc.pages.length; i++) {
+      const page = doc.pages[i];
+      const pageCleanName = (page.name || `Side_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+      const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
+
+      try {
+        if (page.fileType === 'pdf' || (page.url && page.url.toLowerCase().includes('.pdf'))) {
+          const pdfJpgs = await convertPdfToJpgBlobs(page.url, rot);
+          pdfJpgs.forEach((item) => {
+            const fileName = pdfJpgs.length > 1
+              ? `${pageCleanName}_Page_${item.pageNumber}.jpg`
+              : `${pageCleanName}.jpg`;
+            folder.file(fileName, item.blob);
+            convertedCount++;
+          });
+        } else {
+          const img = await loadImage(page.url);
+          const canvas = getRotatedCanvas(img, rot);
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+          if (blob) {
+            folder.file(`${pageCleanName}.jpg`, blob);
+            convertedCount++;
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not convert page ${i} to JPG:`, err);
+      }
+    }
+
+    if (convertedCount > 0) {
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      saveAs(zipBlob, `${cleanDocName}_JPGs.zip`);
+      return;
+    }
   }
+
+  // 2. PDF Document: Convert PDF pages into genuine high-res JPG images
+  const isPdf = doc.fileType === 'pdf' || (doc.url && (doc.url.toLowerCase().includes('.pdf') || doc.url.startsWith('data:application/pdf')));
+  if (isPdf && doc.url) {
+    try {
+      const rot = doc.rotation || 0;
+      const pdfJpgs = await convertPdfToJpgBlobs(doc.url, rot);
+      if (pdfJpgs.length === 1) {
+        // Single page PDF: save directly as .jpg
+        saveAs(pdfJpgs[0].blob, `${cleanDocName}.jpg`);
+        return;
+      } else if (pdfJpgs.length > 1) {
+        if (typeof targetPageIndex === 'number' && pdfJpgs[targetPageIndex]) {
+          saveAs(pdfJpgs[targetPageIndex].blob, `${cleanDocName}_Page_${targetPageIndex + 1}.jpg`);
+          return;
+        }
+        // Multi-page PDF: package all converted high-res JPG pages into a zip
+        const zip = new JSZip();
+        const folder = zip.folder(cleanDocName) || zip;
+        pdfJpgs.forEach((item) => {
+          folder.file(`${cleanDocName}_Page_${item.pageNumber}.jpg`, item.blob);
+        });
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        saveAs(zipBlob, `${cleanDocName}_JPG_Pages.zip`);
+        return;
+      }
+    } catch (pdfErr) {
+      console.error('PDF to JPG conversion error:', pdfErr);
+    }
+  }
+
+  // 3. Word DOCX / DOC Document: convert content into high-res A4 JPG
+  const isDocx = doc.fileType === 'docx' || doc.fileType === 'doc' || (doc.name && /\.(docx|doc)$/i.test(doc.name));
+  if (isDocx) {
+    try {
+      let textOrHtml = doc.content || '';
+      if (!textOrHtml && doc.url) {
+        try {
+          const bytes = await parseUrlToUint8Array(doc.url);
+          const mammothResult = await mammoth.convertToHtml({ arrayBuffer: bytes.buffer as ArrayBuffer });
+          textOrHtml = mammothResult.value;
+        } catch (mErr) {
+          console.warn('Mammoth parse error in JPG export:', mErr);
+        }
+      }
+      if (textOrHtml) {
+        const jpgBlob = await convertTextOrHtmlToJpgBlob(textOrHtml, doc.name);
+        if (jpgBlob) {
+          saveAs(jpgBlob, `${cleanDocName}.jpg`);
+          return;
+        }
+      }
+    } catch (docErr) {
+      console.error('DOCX to JPG conversion error:', docErr);
+    }
+  }
+
+  // 4. Text / Markdown / Plain Notes: render formatted A4 JPG
+  if (['txt', 'md', 'rtf', 'html'].includes(doc.fileType) || doc.content) {
+    try {
+      let content = doc.content || '';
+      if (!content && doc.url) {
+        const bytes = await parseUrlToUint8Array(doc.url);
+        content = new TextDecoder().decode(bytes);
+      }
+      const jpgBlob = await convertTextOrHtmlToJpgBlob(content, doc.name);
+      if (jpgBlob) {
+        saveAs(jpgBlob, `${cleanDocName}.jpg`);
+        return;
+      }
+    } catch (textErr) {
+      console.error('Text to JPG conversion error:', textErr);
+    }
+  }
+
+  // 5. Standard Image: PNG, WEBP, GIF, SVG, JPG
+  if (doc.url) {
+    try {
+      const img = await loadImage(doc.url);
+      const rot = doc.rotation || 0;
+      const canvas = getRotatedCanvas(img, rot);
+      const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+      if (blob) {
+        saveAs(blob, `${cleanDocName}.jpg`);
+        return;
+      }
+    } catch (imgErr) {
+      console.error('Image to JPG conversion error:', imgErr);
+    }
+  }
+
+  alert(`Could not convert "${doc.name}" to JPG format. Please ensure the file is an accessible PDF, Word document, or image.`);
 };
 
 export const exportMultipleDocuments = async (

@@ -24,6 +24,7 @@ import {
   Folder,
   FolderPlus,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Palette,
   GripVertical,
@@ -62,6 +63,7 @@ interface DocumentListProps {
   onDeleteDocument: (id: string, e: React.MouseEvent) => void;
   onShareDocument: (doc: DocumentItem, e: React.MouseEvent) => void;
   onExportDocument: (doc: DocumentItem, e: React.MouseEvent) => void;
+  onExportAsJpg?: (doc: DocumentItem, e?: React.MouseEvent) => void;
   onOpenUploadModal?: () => void;
   onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
   onRenameDocument?: (id: string, newName: string) => void;
@@ -72,6 +74,7 @@ interface DocumentListProps {
   onMoveDocToFolder?: (docId: string, targetFolderId?: string) => void;
   onUploadFilesToFolder?: (files: FileList | File[], folderId?: string) => void;
   onReorderDocument?: (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => void;
+  onMoveDocPosition?: (docId: string, direction: 'up' | 'down') => void;
   onCreateBlankDoc?: (title: string, fileType: FileType) => void;
   onSyncLocalDocs?: () => void;
   tabTitle: string;
@@ -92,6 +95,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onDeleteDocument,
   onShareDocument,
   onExportDocument,
+  onExportAsJpg,
   onOpenUploadModal,
   onAddPageToDoc,
   onRenameDocument,
@@ -102,6 +106,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onMoveDocToFolder,
   onUploadFilesToFolder,
   onReorderDocument,
+  onMoveDocPosition,
   onCreateBlankDoc,
   onSyncLocalDocs,
   tabTitle
@@ -384,19 +389,19 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         key={doc.id}
         draggable={true}
         onDragStart={(e) => {
+          (window as any)._draggedDocId = doc.id;
+          e.dataTransfer.setData('text/plain', doc.id);
           e.dataTransfer.setData('text/doc-id', doc.id);
           e.dataTransfer.effectAllowed = 'move';
         }}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('text/doc-id')) {
-            e.preventDefault();
-            e.stopPropagation();
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pos = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
-            if (reorderTargetId !== doc.id || reorderPosition !== pos) {
-              setReorderTargetId(doc.id);
-              setReorderPosition(pos);
-            }
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pos = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+          if (reorderTargetId !== doc.id || reorderPosition !== pos) {
+            setReorderTargetId(doc.id);
+            setReorderPosition(pos);
           }
         }}
         onDragLeave={(e) => {
@@ -406,13 +411,13 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           }
         }}
         onDrop={(e) => {
-          const sourceDocId = e.dataTransfer.getData('text/doc-id');
+          e.preventDefault();
+          e.stopPropagation();
+          const sourceDocId = e.dataTransfer.getData('text/doc-id') || e.dataTransfer.getData('text/plain') || (window as any)._draggedDocId;
           if (sourceDocId && sourceDocId !== doc.id && onReorderDocument) {
-            e.preventDefault();
-            e.stopPropagation();
             onReorderDocument(sourceDocId, doc.id, reorderPosition);
-            setReorderTargetId(null);
           }
+          setReorderTargetId(null);
         }}
         onClick={() => {
           if (doc.hasFile) {
@@ -431,13 +436,43 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         {isReorderTarget && reorderPosition === 'after' && (
           <div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-[#1a73e8] z-30 rounded-full shadow-md pointer-events-none" />
         )}
-        {/* Grip handle for drag */}
+        {/* Grip handle and 1-Click Move Up / Down controls */}
         <div 
-          className="mt-1 cursor-grab active:cursor-grabbing text-[#dadce0] group-hover:text-[#5f6368] transition-colors flex-shrink-0"
-          title="Drag to move into a folder or reorder"
+          className="mt-0.5 flex flex-col items-center text-[#dadce0] group-hover:text-[#5f6368] transition-colors flex-shrink-0 select-none"
           onClick={(e) => e.stopPropagation()}
         >
-          <GripVertical className="w-3.5 h-3.5" />
+          {onMoveDocPosition && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDocPosition(doc.id, 'up');
+              }}
+              className="p-0.5 hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors opacity-30 group-hover:opacity-100"
+              title="Move document up"
+            >
+              <ChevronUp className="w-3 h-3" />
+            </button>
+          )}
+          <div 
+            className="cursor-grab active:cursor-grabbing p-0.5"
+            title="Drag to reorder or move into folder"
+          >
+            <GripVertical className="w-3.5 h-3.5" />
+          </div>
+          {onMoveDocPosition && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onMoveDocPosition(doc.id, 'down');
+              }}
+              className="p-0.5 hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors opacity-30 group-hover:opacity-100"
+              title="Move document down"
+            >
+              <ChevronDown className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {/* Select Checkbox */}
@@ -612,10 +647,22 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 <button
                   onClick={(e) => onExportDocument(doc, e)}
                   className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                  title="Export / Download"
+                  title="Download Original File"
                 >
                   <Download className="w-3.5 h-3.5" />
                 </button>
+                {onExportAsJpg && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onExportAsJpg(doc, e);
+                    }}
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    title="Convert &amp; Export as JPG"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => onShareDocument(doc, e)}
                   className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"

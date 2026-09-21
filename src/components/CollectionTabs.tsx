@@ -25,7 +25,7 @@ interface CollectionTabsProps {
   onDeleteTab: (tabId: string) => void;
   onShareTab: (tabId: string) => void;
   documentCounts: Record<string, { total: number; missing: number; approved: number }>;
-  sortOption: 'name' | 'date';
+  sortOption: 'name' | 'date' | 'manual';
   onToggleSort: () => void;
 }
 
@@ -286,10 +286,10 @@ export const CollectionTabs: React.FC<CollectionTabsProps> = ({
         <button
           onClick={onToggleSort}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4] rounded-lg transition-colors border border-[#dadce0]"
-          title={`Currently sorted by ${sortOption === 'date' ? 'Date' : 'Name'}. Click to toggle.`}
+          title={`Currently sorted by: ${sortOption === 'manual' ? 'Custom Reorder' : sortOption === 'date' ? 'Date' : 'Name'}. Click to toggle.`}
         >
           <ArrowUpDown className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Sort: {sortOption === 'date' ? 'Date' : 'Name'}</span>
+          <span className="hidden sm:inline">Sort: {sortOption === 'manual' ? 'Custom' : sortOption === 'date' ? 'Date' : 'Name'}</span>
         </button>
       </div>
     </div>
