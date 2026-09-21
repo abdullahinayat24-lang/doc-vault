@@ -33,11 +33,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   onClose,
   onSelectPlan
 }) => {
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual' | 'lifetime'>('annual');
   const [promoCode, setPromoCode]       = useState('');
   const [promoApplied, setPromoApplied] = useState<{ label: string; discountPct: number } | null>(null);
   const [promoError, setPromoError]     = useState('');
-  const [showPromo, setShowPromo]       = useState(false);
+  const [showPromo, setShowPromo]       = useState(true);
 
   const trial = getTrialStatus();
 
@@ -72,6 +72,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       description: 'Ideal for independent solicitors & immigration advisers',
       priceMonthly: 39,
       priceAnnual: 29,
+      priceLifetime: 299,
       highlight: false,
       badge: 'Starter',
       features: [
@@ -90,17 +91,18 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       description: 'Most popular for growing law firms & solicitors practices',
       priceMonthly: 89,
       priceAnnual: 69,
+      priceLifetime: 499,
       highlight: true,
       badge: 'Most Popular',
       features: [
-        'Up to 5 Solicitor / Staff Accounts',
+        'Up to 10 Solicitor / Staff Accounts',
         'Unlimited Active Cases & Matters',
+        'Staff Directory & Case Assignment',
         'Side-by-Side 2-Sided Document Comparison',
-        'Batch Document ZIP & Combined PDF Export',
-        'Client Document Request Slots (Red / Green alerts)',
-        'Single-Use License Key Distribution',
-        'Priority Phone & WhatsApp Support',
-        'Custom Law Firm Branding & Header Logo'
+        'Batch Document Move, ZIP & Auto-Numbering',
+        'Client Document Request Slots (Red / Green)',
+        'Custom Law Firm Branding & Color Theme',
+        'Priority Phone & WhatsApp Support'
       ]
     },
     {
@@ -109,6 +111,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       description: 'Maximum compliance for law firms requiring data sovereignty',
       priceMonthly: 219,
       priceAnnual: 179,
+      priceLifetime: 999,
       highlight: false,
       badge: 'Zero-Knowledge',
       features: [
@@ -126,17 +129,36 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const handleGetPlan = (plan: typeof plans[number]) => {
     if (onSelectPlan) onSelectPlan(plan.name);
 
-    const basePrice = billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly;
-    const finalPrice = getDiscountedPrice(basePrice);
-    const multiplier = billingCycle === 'annual' ? 12 : 1;
-    const totalPrice = finalPrice * multiplier;
+    let basePrice: number;
+    let totalPrice: number;
+    let cycleLabel: string;
+
+    if (billingCycle === 'lifetime') {
+      basePrice = plan.priceLifetime;
+      totalPrice = getDiscountedPrice(basePrice);
+      cycleLabel = 'One-Time Lifetime Purchase';
+    } else if (billingCycle === 'annual') {
+      basePrice = plan.priceAnnual;
+      totalPrice = getDiscountedPrice(basePrice) * 12;
+      cycleLabel = 'Annual Plan';
+    } else {
+      basePrice = plan.priceMonthly;
+      totalPrice = getDiscountedPrice(basePrice);
+      cycleLabel = 'Monthly Plan';
+    }
+
+    if (totalPrice <= 0) {
+      alert(`VIP License Activated: ${plan.name} (${cycleLabel}) granted with 100% discount!`);
+      onClose();
+      return;
+    }
 
     if (PAYPAL_USERNAME && PAYPAL_USERNAME.trim() !== '') {
       const link = `https://www.paypal.com/paypalme/${PAYPAL_USERNAME}/${totalPrice}GBP`;
       window.open(link, '_blank', 'noopener,noreferrer');
     } else {
       // Direct PayPal Web Checkout targeting owner's PayPal email account
-      const planTitle = `DocVault ${plan.name} (${billingCycle === 'annual' ? 'Annual Plan' : 'Monthly Plan'})`;
+      const planTitle = `DocVault ${plan.name} (${cycleLabel})`;
       const directLink = `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(OWNER_EMAIL)}&item_name=${encodeURIComponent(planTitle)}&amount=${totalPrice}&currency_code=GBP`;
       window.open(directLink, '_blank', 'noopener,noreferrer');
     }
@@ -194,15 +216,21 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             <ShieldCheck className="w-4 h-4 text-[#137333]" />
             <span>Bank-grade 256-bit encryption • No setup fees • Cancel anytime</span>
           </div>
-          <div className="flex items-center bg-white border border-[#dadce0] rounded-full p-1 shadow-xs">
+          <div className="flex items-center bg-white border border-[#dadce0] rounded-full p-1 shadow-xs flex-wrap gap-1">
             <button onClick={() => setBillingCycle('monthly')}
-              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all ${billingCycle === 'monthly' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${billingCycle === 'monthly' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
               Monthly
             </button>
             <button onClick={() => setBillingCycle('annual')}
-              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${billingCycle === 'annual' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${billingCycle === 'annual' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
               <span>Annual</span>
               <span className="bg-[#e6f4ea] text-[#137333] text-[10px] font-bold px-1.5 py-0.2 rounded-full uppercase">Save 20%</span>
+            </button>
+            <button onClick={() => setBillingCycle('lifetime')}
+              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${billingCycle === 'lifetime' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc]'}`}>
+              <Sparkles className="w-3 h-3 text-amber-400 fill-amber-400" />
+              <span>Lifetime (One-Time)</span>
+              <span className="bg-[#fef7e0] text-[#b06000] text-[10px] font-extrabold px-1.5 py-0.2 rounded-full uppercase">Popular</span>
             </button>
           </div>
         </div>
@@ -210,7 +238,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         {/* Pricing Cards Grid */}
         <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-3 gap-5">
           {plans.map((plan) => {
-            const basePrice  = billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+            const basePrice  = billingCycle === 'lifetime' ? plan.priceLifetime : (billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly);
             const finalPrice = getDiscountedPrice(basePrice);
             const discounted = finalPrice < basePrice;
 
@@ -241,13 +269,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                         <span className="text-lg font-bold text-[#9aa0a6] line-through">£{basePrice}</span>
                       )}
                       <span className={`text-3xl font-extrabold ${discounted ? 'text-[#34a853]' : 'text-[#202124]'}`}>£{finalPrice}</span>
-                      <span className="text-xs text-[#5f6368]">/ month</span>
+                      <span className="text-xs text-[#5f6368]">{billingCycle === 'lifetime' ? 'one-time' : '/ month'}</span>
                     </div>
                     {discounted && promoApplied && (
                       <span className="text-[11px] font-bold text-[#34a853]">{promoApplied.label} applied ✓</span>
                     )}
                     <span className="text-[11px] text-[#5f6368] block mt-0.5">
-                      {billingCycle === 'annual' ? `Billed annually — £${finalPrice * 12}/year (2 months free)` : 'Billed monthly'}
+                      {billingCycle === 'lifetime'
+                        ? 'Perpetual practice license — pay once, own forever'
+                        : (billingCycle === 'annual' ? `Billed annually — £${finalPrice * 12}/year (2 months free)` : 'Billed monthly')}
                     </span>
                   </div>
 

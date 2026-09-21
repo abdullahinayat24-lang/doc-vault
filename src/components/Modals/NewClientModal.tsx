@@ -1,23 +1,26 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Phone, Mail, FileText, PoundSterling, AlertCircle } from 'lucide-react';
-import { ClientRecord, ClientPriority } from '../../types';
+import { X, UserPlus, Phone, Mail, FileText, PoundSterling, AlertCircle, Users } from 'lucide-react';
+import { ClientRecord, ClientPriority, StaffMember } from '../../types';
 
 interface NewClientModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddClient: (client: ClientRecord) => void;
+  staffList?: StaffMember[];
 }
 
 export const NewClientModal: React.FC<NewClientModalProps> = ({
   isOpen,
   onClose,
-  onAddClient
+  onAddClient,
+  staffList = []
 }) => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [cameFor, setCameFor] = useState('');
   const [priority, setPriority] = useState<ClientPriority>('normal');
+  const [assignedStaffId, setAssignedStaffId] = useState<string>('');
   const [totalAskingAmount, setTotalAskingAmount] = useState<string>('1500');
   const [totalDocCost, setTotalDocCost] = useState<string>('250');
   const [initialVisitReason, setInitialVisitReason] = useState('Initial consultation and document submission');
@@ -35,6 +38,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
       email: email.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`,
       cameFor: cameFor.trim() || 'General Legal Representation',
       priority,
+      assignedStaffId: assignedStaffId || undefined,
       totalAskingAmount: parseFloat(totalAskingAmount) || 0,
       totalDocCost: parseFloat(totalDocCost) || 0,
       amountPaid: 0,
@@ -110,6 +114,28 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
               </select>
             </div>
           </div>
+
+          {/* Assigned Staff Member */}
+          {staffList.length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-[#202124] mb-1 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-[#1a73e8]" />
+                <span>Assign Solicitor / Staff Member</span>
+              </label>
+              <select
+                value={assignedStaffId}
+                onChange={(e) => setAssignedStaffId(e.target.value)}
+                className="w-full px-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none font-medium text-[#202124]"
+              >
+                <option value="">Unassigned (General Firm Pool)</option>
+                {staffList.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} — {s.role} ({s.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Contact Details */}
           <div className="grid grid-cols-2 gap-3">

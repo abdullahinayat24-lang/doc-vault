@@ -23,6 +23,8 @@ import {
   X,
   Folder,
   FolderPlus,
+  FolderInput,
+  Hash,
   ChevronDown,
   ChevronUp,
   ChevronRight,
@@ -78,6 +80,10 @@ interface DocumentListProps {
   onMoveDocPosition?: (docId: string, direction: 'up' | 'down') => void;
   onCreateBlankDoc?: (title: string, fileType: FileType) => void;
   onSyncLocalDocs?: () => void;
+  onBatchDeleteDocs?: (docIds: string[]) => void;
+  onBatchMoveDocsToFolder?: (docIds: string[], targetFolderId?: string) => void;
+  onBatchAutoNumberDocs?: (docIds: string[]) => void;
+  onBatchUpdateStatus?: (docIds: string[], status: DocumentStatus) => void;
   tabTitle: string;
 }
 
@@ -110,6 +116,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onMoveDocPosition,
   onCreateBlankDoc,
   onSyncLocalDocs,
+  onBatchDeleteDocs,
+  onBatchMoveDocsToFolder,
+  onBatchAutoNumberDocs,
+  onBatchUpdateStatus,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +128,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
   const [targetFolderUploadId, setTargetFolderUploadId] = useState<string | null>(null);
+
+  // Folder and view filtering
+  const [folderFilter, setFolderFilter] = useState<'all' | 'in_folders' | 'without_folders'>('all');
+  const [showBatchMoveDropdown, setShowBatchMoveDropdown] = useState(false);
 
   // Reordering documents drag state
   const [reorderTargetId, setReorderTargetId] = useState<string | null>(null);
@@ -353,9 +367,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   const allSelected = filteredDocuments.length > 0 && selectedDocIds.length === filteredDocuments.length;
 
-  // Root elements
-  const rootFolders = folders.filter(f => !f.parentId);
-  const rootDocuments = filteredDocuments.filter(d => !d.folderId || !folders.some(f => f.id === d.folderId));
+  // Root elements filtered by folderFilter
+  const rootFolders = folderFilter === 'without_folders' ? [] : folders.filter(f => !f.parentId);
+  const rootDocuments = folderFilter === 'in_folders'
+    ? []
+    : filteredDocuments.filter(d => !d.folderId || !folders.some(f => f.id === d.folderId));
 
   // Render individual document item card
   const renderDocumentCard = (doc: DocumentItem, depth = 0) => {
@@ -510,32 +526,34 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         <div className="flex-1 min-w-0">
           {editingDocId === doc.id ? (
             <div 
-              className="flex items-center gap-1.5 w-full my-0.5" 
+              className="flex items-center gap-2 w-full my-1 z-20" 
               onClick={(e) => e.stopPropagation()}
             >
               <input
                 type="text"
                 value={editingDocName}
                 onChange={(e) => setEditingDocName(e.target.value)}
+                onFocus={(e) => e.target.select()}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleSaveDocName(doc.id);
                   if (e.key === 'Escape') setEditingDocId(null);
                 }}
                 autoFocus
-                className="w-full text-xs font-semibold px-2 py-1 bg-white border border-[#1a73e8] rounded-md shadow-xs outline-none text-[#202124]"
+                className="flex-1 min-w-[160px] sm:min-w-[220px] text-xs sm:text-sm font-semibold px-2.5 py-1.5 bg-white border-2 border-[#1a73e8] rounded-lg shadow-sm outline-none text-[#202124] ring-2 ring-[#1a73e8]/20"
               />
               <button
                 type="button"
                 onClick={() => handleSaveDocName(doc.id)}
-                className="p-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded transition-colors flex-shrink-0"
+                className="px-2.5 py-1.5 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-xs flex-shrink-0"
                 title="Save Name (Enter)"
               >
                 <Check className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Save</span>
               </button>
               <button
                 type="button"
                 onClick={() => setEditingDocId(null)}
-                className="p-1 hover:bg-black/5 text-[#5f6368] rounded transition-colors flex-shrink-0"
+                className="p-1.5 hover:bg-black/5 text-[#5f6368] rounded-lg transition-colors flex-shrink-0"
                 title="Cancel (Esc)"
               >
                 <X className="w-3.5 h-3.5" />
@@ -612,104 +630,106 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           )}
         </div>
 
-        {/* Approve / Disapprove & Quick Action Buttons */}
-        <div 
-          className="flex flex-col items-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Status toggles */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onUpdateDocumentStatus(doc.id, 'approved')}
-              className={`p-1 rounded transition-colors ${
-                doc.status === 'approved' 
-                  ? 'bg-[#137333] text-white shadow-xs' 
-                  : 'text-[#5f6368] hover:text-[#137333] hover:bg-[#e6f4ea]'
-              }`}
-              title="Approve document (Turns Green)"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => {
-                const reason = prompt('Reason for disapproval (optional):', doc.notes || '');
-                onUpdateDocumentStatus(doc.id, 'disapproved', reason || undefined);
-              }}
-              className={`p-1 rounded transition-colors ${
-                doc.status === 'disapproved' || doc.status === 'missing'
-                  ? 'bg-[#d93025] text-white shadow-xs' 
-                  : 'text-[#5f6368] hover:text-[#d93025] hover:bg-[#fce8e6]'
-              }`}
-              title="Disapprove document (Turns Red)"
-            >
-              <XCircle className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Action buttons on hover */}
-          <div className="flex items-center gap-1 pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {onRenameDocument && (
+        {/* Approve / Disapprove & Quick Action Buttons (hidden while editing name) */}
+        {editingDocId !== doc.id && (
+          <div 
+            className="flex flex-col items-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Status toggles */}
+            <div className="flex items-center gap-1">
               <button
-                onClick={(e) => handleStartEditing(doc, e)}
-                className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                title="Rename Document"
+                onClick={() => onUpdateDocumentStatus(doc.id, 'approved')}
+                className={`p-1 rounded transition-colors ${
+                  doc.status === 'approved' 
+                    ? 'bg-[#137333] text-white shadow-xs' 
+                    : 'text-[#5f6368] hover:text-[#137333] hover:bg-[#e6f4ea]'
+                }`}
+                title="Approve document (Turns Green)"
               >
-                <Edit2 className="w-3.5 h-3.5" />
+                <CheckCircle2 className="w-4 h-4" />
               </button>
-            )}
-            {doc.hasFile && (
-              <>
-                <button
-                  onClick={(e) => onExportDocument(doc, e)}
-                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                  title="Download Original File"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-                {onExportAsJpg && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExportAsJpg(doc, e);
-                    }}
-                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                    title="Convert &amp; Export as JPG"
-                  >
-                    <ImageIcon className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                <button
-                  onClick={(e) => onShareDocument(doc, e)}
-                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                  title="Share Document"
-                >
-                  <Share2 className="w-3.5 h-3.5" />
-                </button>
-              </>
-            )}
-            {/* If inside folder, offer quick move to root */}
-            {doc.folderId && onMoveDocToFolder && (
+
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMoveDocToFolder(doc.id, undefined);
+                onClick={() => {
+                  const reason = prompt('Reason for disapproval (optional):', doc.notes || '');
+                  onUpdateDocumentStatus(doc.id, 'disapproved', reason || undefined);
                 }}
-                className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                title="Move out of folder to Root"
+                className={`p-1 rounded transition-colors ${
+                  doc.status === 'disapproved' || doc.status === 'missing'
+                    ? 'bg-[#d93025] text-white shadow-xs' 
+                    : 'text-[#5f6368] hover:text-[#d93025] hover:bg-[#fce8e6]'
+                }`}
+                title="Disapprove document (Turns Red)"
               >
-                <CornerDownRight className="w-3.5 h-3.5" />
+                <XCircle className="w-4 h-4" />
               </button>
-            )}
-            <button
-              onClick={(e) => onDeleteDocument(doc.id, e)}
-              className="p-1 text-[#5f6368] hover:text-[#d93025] hover:bg-black/5 rounded transition-colors"
-              title="Delete Slot"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            </div>
+
+            {/* Action buttons on hover */}
+            <div className="flex items-center gap-1 pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {onRenameDocument && (
+                <button
+                  onClick={(e) => handleStartEditing(doc, e)}
+                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                  title="Rename Document"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+              {doc.hasFile && (
+                <>
+                  <button
+                    onClick={(e) => onExportDocument(doc, e)}
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    title="Download Original File"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  {onExportAsJpg && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExportAsJpg(doc, e);
+                      }}
+                      className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                      title="Convert &amp; Export as JPG"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => onShareDocument(doc, e)}
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    title="Share Document"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
+              {/* If inside folder, offer quick move to root */}
+              {doc.folderId && onMoveDocToFolder && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveDocToFolder(doc.id, undefined);
+                  }}
+                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                  title="Move out of folder to Root"
+                >
+                  <CornerDownRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                onClick={(e) => onDeleteDocument(doc.id, e)}
+                className="p-1 text-[#5f6368] hover:text-[#d93025] hover:bg-black/5 rounded transition-colors"
+                title="Delete Slot"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -1176,6 +1196,46 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           </button>
         </div>
 
+        {/* Folder View Filter Tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1 text-[11px] border-t border-[#dadce0]/60 mt-1.5">
+          <span className="text-[10px] font-bold text-[#5f6368] uppercase tracking-wider mr-1">View:</span>
+          <button
+            type="button"
+            onClick={() => setFolderFilter('all')}
+            className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
+              folderFilter === 'all'
+                ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+                : 'bg-[#f1f3f4] text-[#5f6368] hover:bg-[#e8eaed]'
+            }`}
+          >
+            All Docs
+          </button>
+          <button
+            type="button"
+            onClick={() => setFolderFilter('in_folders')}
+            className={`px-2 py-0.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
+              folderFilter === 'in_folders'
+                ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+                : 'bg-[#f1f3f4] text-[#5f6368] hover:bg-[#e8eaed]'
+            }`}
+          >
+            <Folder className="w-3 h-3 text-amber-500" />
+            <span>In Folders</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setFolderFilter('without_folders')}
+            className={`px-2 py-0.5 rounded-md font-medium transition-colors flex items-center gap-1 ${
+              folderFilter === 'without_folders'
+                ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+                : 'bg-[#f1f3f4] text-[#5f6368] hover:bg-[#e8eaed]'
+            }`}
+          >
+            <File className="w-3 h-3 text-blue-500" />
+            <span>Without Folders (Root)</span>
+          </button>
+        </div>
+
         {/* Selection Bar */}
         <div className="flex items-center justify-between text-xs text-[#5f6368] pt-1 px-1">
           <div 
@@ -1197,6 +1257,129 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             {tabTitle}
           </span>
         </div>
+
+        {/* Multi-Select Floating Batch Action Toolbar */}
+        {selectedDocIds.length > 0 && (
+          <div className="bg-[#1e293b] text-white p-2.5 rounded-2xl shadow-xl border border-slate-700 flex flex-col gap-2 animate-in slide-in-from-top-2 duration-150 z-30 mt-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold flex items-center gap-1.5 text-blue-300">
+                <CheckSquare className="w-3.5 h-3.5 text-blue-400" />
+                <span>{selectedDocIds.length} Document{selectedDocIds.length > 1 ? 's' : ''} Selected</span>
+              </span>
+              <button
+                type="button"
+                onClick={onToggleSelectAll}
+                className="text-[11px] text-slate-400 hover:text-white transition-colors"
+              >
+                Clear Selection
+              </button>
+            </div>
+
+            {/* Batch Action Buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              {/* Move to Folder Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchMoveDropdown(prev => !prev)}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-600 transition-colors shadow-xs"
+                  title="Move selected documents to a folder"
+                >
+                  <FolderInput className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Move to Folder...</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+
+                {showBatchMoveDropdown && (
+                  <div className="absolute left-0 top-full mt-1 w-52 bg-white text-slate-800 rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 animate-in fade-in zoom-in-95">
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase text-slate-400 border-b border-slate-100">
+                      Destination Folder
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onBatchMoveDocsToFolder) {
+                          onBatchMoveDocsToFolder(selectedDocIds, undefined);
+                        }
+                        setShowBatchMoveDropdown(false);
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs font-semibold hover:bg-blue-50 text-[#1a73e8] flex items-center gap-2 transition-colors"
+                    >
+                      <CornerDownRight className="w-3.5 h-3.5" />
+                      <span>Root Level (Remove from Folder)</span>
+                    </button>
+                    {folders.map(f => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => {
+                          if (onBatchMoveDocsToFolder) {
+                            onBatchMoveDocsToFolder(selectedDocIds, f.id);
+                          }
+                          setShowBatchMoveDropdown(false);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-slate-100 flex items-center gap-2 text-slate-700 transition-colors"
+                      >
+                        <Folder className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 1-Click Sequential Auto-Numbering (1., 2., 3...) */}
+              {onBatchAutoNumberDocs && (
+                <button
+                  type="button"
+                  onClick={() => onBatchAutoNumberDocs(selectedDocIds)}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-600 transition-colors shadow-xs"
+                  title="Auto-number selected documents sequentially (1. Passport, 2. Bank Statement, etc.)"
+                >
+                  <Hash className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Auto-Number (1,2,3..)</span>
+                </button>
+              )}
+
+              {/* Approve All */}
+              {onBatchUpdateStatus && (
+                <button
+                  type="button"
+                  onClick={() => onBatchUpdateStatus(selectedDocIds, 'approved')}
+                  className="p-1 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 rounded-lg text-xs border border-emerald-800 transition-colors"
+                  title="Approve All Selected (Turn Green)"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Disapprove All */}
+              {onBatchUpdateStatus && (
+                <button
+                  type="button"
+                  onClick={() => onBatchUpdateStatus(selectedDocIds, 'disapproved')}
+                  className="p-1 bg-red-950/80 hover:bg-red-900 text-red-300 rounded-lg text-xs border border-red-800 transition-colors"
+                  title="Disapprove All Selected (Turn Red)"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Delete All */}
+              {onBatchDeleteDocs && (
+                <button
+                  type="button"
+                  onClick={() => onBatchDeleteDocs(selectedDocIds)}
+                  className="px-2.5 py-1 bg-red-950/80 hover:bg-red-900 text-red-300 rounded-lg text-xs font-semibold flex items-center gap-1 border border-red-800 transition-colors shadow-xs ml-auto"
+                  title="Delete Selected Documents"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Drag & Drop Overlay */}

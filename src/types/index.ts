@@ -36,6 +36,7 @@ export interface ClientRecord {
   lastVisitDate: string;
   visitCount: number; // e.g. came 4 times
   notes?: string;
+  assignedStaffId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -127,6 +128,20 @@ export interface SolicitorProfile {
   pinCode: string; // 4-digit PIN for session lock
   isDemoMode: boolean;
   role?: 'admin' | 'staff';
+  firmThemeColor?: string; // Hex color code for branding
+  portalBgTheme?: string; // 'white' | 'cream' | 'slate'
+}
+
+export type StaffRole = 'Partner' | 'Senior Solicitor' | 'Solicitor' | 'Paralegal' | 'Case Worker' | 'Legal Secretary';
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  role: StaffRole;
+  phone?: string;
+  avatarColor?: string;
+  createdAt: string;
 }
 
 export type UserProfile = SolicitorProfile;

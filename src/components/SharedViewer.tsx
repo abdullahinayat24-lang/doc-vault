@@ -62,6 +62,7 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
+  const [portalBg, setPortalBg] = useState<'default' | 'warm' | 'slate'>('default');
 
   if (!shareRecord) {
     return (
@@ -392,6 +393,31 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
             </button>
           </div>
 
+          {/* Theme background switcher */}
+          <div className="hidden xs:flex items-center bg-[#f1f3f4] p-0.5 rounded-xl border border-[#dadce0] text-[11px]">
+            <button
+              onClick={() => setPortalBg('default')}
+              className={`px-2 py-1 rounded-lg transition-colors ${portalBg === 'default' ? 'bg-white text-[#1a73e8] font-bold shadow-xs' : 'text-[#5f6368]'}`}
+              title="Clean White Theme"
+            >
+              Light
+            </button>
+            <button
+              onClick={() => setPortalBg('warm')}
+              className={`px-2 py-1 rounded-lg transition-colors ${portalBg === 'warm' ? 'bg-[#fef3c7] text-[#78350f] font-bold shadow-xs' : 'text-[#5f6368]'}`}
+              title="Warm Legal Sand Theme"
+            >
+              Warm
+            </button>
+            <button
+              onClick={() => setPortalBg('slate')}
+              className={`px-2 py-1 rounded-lg transition-colors ${portalBg === 'slate' ? 'bg-[#1e293b] text-white font-bold shadow-xs' : 'text-[#5f6368]'}`}
+              title="Modern Charcoal Theme"
+            >
+              Slate
+            </button>
+          </div>
+
           {allowedDocuments.filter(d => d.hasFile).length > 1 && (
             <button
               onClick={() => exportMultipleDocuments(allowedDocuments, `${shareRecord.title}.zip`)}
@@ -414,11 +440,14 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
         </div>
       </header>
 
-
       {/* Main Content Area */}
       {activeViewMode === 'upload_portal' ? (
         /* DOCUMENT UPLOADER MODE */
-        <div className="flex-1 bg-[#f8fafd] overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <div className={`flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 ${
+          portalBg === 'warm' 
+            ? 'bg-[#faf8f5]' 
+            : (portalBg === 'slate' ? 'bg-[#0f172a] text-slate-100' : 'bg-[#f8fafd]')
+        }`}>
           <div className="max-w-3xl mx-auto space-y-6">
             {/* Solicitor Instruction Card */}
             <div className="bg-white border border-[#dadce0] rounded-3xl p-6 shadow-xs">

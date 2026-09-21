@@ -3,7 +3,7 @@ import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder } from '../types';
+import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder, StaffMember } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { idbSaveDocuments, idbGetDocuments } from './idbStorage';
 
@@ -669,10 +669,28 @@ export interface PromoCode {
   expiresAt?: string;
 }
 
+const DEFAULT_PROMO_CODES: PromoCode[] = [
+  { id: 'promo_vip100', code: 'VIP100', label: '100% VIP Complimentary License', discountPct: 100, active: true, createdAt: new Date().toISOString() },
+  { id: 'promo_legal50', code: 'LEGAL50', label: '50% Law Firm Launch Discount', discountPct: 50, active: true, createdAt: new Date().toISOString() },
+  { id: 'promo_sol20', code: 'SOLICITOR20', label: '20% Chambers Partner Discount', discountPct: 20, active: true, createdAt: new Date().toISOString() },
+];
+
 export const getPromoCodes = (): PromoCode[] => {
   try {
-    return JSON.parse(localStorage.getItem(PROMO_KEY) || '[]');
-  } catch { return []; }
+    const saved = localStorage.getItem(PROMO_KEY);
+    if (!saved) {
+      localStorage.setItem(PROMO_KEY, JSON.stringify(DEFAULT_PROMO_CODES));
+      return DEFAULT_PROMO_CODES;
+    }
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      localStorage.setItem(PROMO_KEY, JSON.stringify(DEFAULT_PROMO_CODES));
+      return DEFAULT_PROMO_CODES;
+    }
+    return parsed;
+  } catch {
+    return DEFAULT_PROMO_CODES;
+  }
 };
 
 export const savePromoCode = (promo: PromoCode) => {
@@ -685,6 +703,69 @@ export const savePromoCode = (promo: PromoCode) => {
 export const deletePromoCode = (id: string) => {
   const codes = getPromoCodes().filter(c => c.id !== id);
   localStorage.setItem(PROMO_KEY, JSON.stringify(codes));
+};
+
+// ─── Firm Staff Directory ───────────────────────────────────────────────────
+const STAFF_KEY = 'docvault_firm_staff';
+
+const DEFAULT_STAFF: StaffMember[] = [
+  {
+    id: 'staff_1',
+    name: 'Sarah Jenkins',
+    email: 'sarah.jenkins@lawchambers.co.uk',
+    role: 'Partner',
+    phone: '+44 20 7946 0912',
+    avatarColor: '#1a73e8',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'staff_2',
+    name: 'David O\'Connor',
+    email: 'david.oc@lawchambers.co.uk',
+    role: 'Senior Solicitor',
+    phone: '+44 20 7946 0915',
+    avatarColor: '#137333',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'staff_3',
+    name: 'Amina Patel',
+    email: 'amina.patel@lawchambers.co.uk',
+    role: 'Paralegal',
+    phone: '+44 20 7946 0920',
+    avatarColor: '#9334e6',
+    createdAt: new Date().toISOString()
+  }
+];
+
+export const getStaff = (): StaffMember[] => {
+  try {
+    const saved = localStorage.getItem(STAFF_KEY);
+    if (!saved) {
+      localStorage.setItem(STAFF_KEY, JSON.stringify(DEFAULT_STAFF));
+      return DEFAULT_STAFF;
+    }
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_STAFF;
+  } catch {
+    return DEFAULT_STAFF;
+  }
+};
+
+export const saveStaffMember = (member: StaffMember) => {
+  const staff = getStaff();
+  const idx = staff.findIndex(s => s.id === member.id);
+  if (idx >= 0) {
+    staff[idx] = member;
+  } else {
+    staff.push(member);
+  }
+  localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
+};
+
+export const deleteStaffMember = (id: string) => {
+  const staff = getStaff().filter(s => s.id !== id);
+  localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
 };
 
 

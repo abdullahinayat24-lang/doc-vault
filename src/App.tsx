@@ -8,7 +8,8 @@ import {
   DocumentStatus,
   ClientRecord,
   DocumentFolder,
-  FolderColor 
+  FolderColor,
+  StaffMember
 } from './types';
 import { 
   getClients,
@@ -37,7 +38,10 @@ import {
   migrateLocalDocumentsToCloud,
   initTrial,
   getTrialStatus,
-  getPromoCodes
+  getPromoCodes,
+  getStaff,
+  saveStaffMember,
+  deleteStaffMember
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -188,6 +192,95 @@ export function App() {
   const [isPricingOpen, setIsPricingOpen] = useState<boolean>(false);
   const [isChangePinOpen, setIsChangePinOpen] = useState<boolean>(false);
   const [isDiscountKeysOpen, setIsDiscountKeysOpen] = useState<boolean>(false);
+
+  // Staff & Team Directory
+  const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
+
+  const handleAddStaffMember = (member: StaffMember) => {
+    saveStaffMember(member);
+    setStaffList(getStaff());
+  };
+
+  const handleDeleteStaffMember = (id: string) => {
+    deleteStaffMember(id);
+    setStaffList(getStaff());
+  };
+
+  const handleAssignStaffToClient = (clientId: string, staffId?: string) => {
+    setClients((prev) => {
+      const updated = prev.map((c) =>
+        c.id === clientId ? { ...c, assignedStaffId: staffId, updatedAt: new Date().toISOString() } : c
+      );
+      saveClients(updated);
+      return updated;
+    });
+  };
+
+  const handleUpdateFirmTheme = (themeColor: string) => {
+    if (user) {
+      const updatedUser: SolicitorProfile = { ...user, firmThemeColor: themeColor };
+      setUser(updatedUser);
+      saveSolicitorProfile(updatedUser);
+    }
+  };
+
+  // Multi-Select Batch Operations
+  const handleBatchMoveDocsToFolder = (docIds: string[], targetFolderId?: string) => {
+    if (docIds.length === 0) return;
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (docIds.includes(d.id)) {
+          const updated = { ...d, folderId: targetFolderId || undefined, updatedAt: new Date().toISOString() };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      })
+    );
+    setSelectedDocIds([]);
+  };
+
+  const handleBatchDeleteDocs = (docIds: string[]) => {
+    if (docIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to delete ${docIds.length} selected document${docIds.length > 1 ? 's' : ''}?`)) return;
+    setDocuments((prev) => prev.filter((d) => !docIds.includes(d.id)));
+    setSelectedDocIds([]);
+    if (activeDocId && docIds.includes(activeDocId)) {
+      setActiveDocId(null);
+    }
+  };
+
+  const handleBatchAutoNumberDocs = (docIds: string[]) => {
+    if (docIds.length === 0) return;
+    setDocuments((prev) => {
+      let counter = 1;
+      return prev.map((d) => {
+        if (docIds.includes(d.id)) {
+          const cleanName = d.name.replace(/^\d+[\.\-\s]+\s*/, '');
+          const numberedName = `${counter}. ${cleanName}`;
+          counter++;
+          const updated = { ...d, name: numberedName, updatedAt: new Date().toISOString() };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      });
+    });
+  };
+
+  const handleBatchUpdateStatus = (docIds: string[], status: DocumentStatus) => {
+    if (docIds.length === 0) return;
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (docIds.includes(d.id)) {
+          const updated = { ...d, status, updatedAt: new Date().toISOString() };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      })
+    );
+  };
 
   // Start free trial on first launch
   useEffect(() => { initTrial(); }, []);
@@ -1088,11 +1181,16 @@ export function App() {
           clients={clients}
           tabs={tabs}
           documents={documents}
+          staffList={staffList}
           onSelectClient={handleSelectClient}
           onOpenNewClientModal={() => setIsNewClientOpen(true)}
           onDeleteClient={handleDeleteClient}
           onQuickShareClient={handleQuickShareClient}
           onEditCompanyProfile={() => setIsAuthOpen(true)}
+          onUpdateFirmTheme={handleUpdateFirmTheme}
+          onAddStaffMember={handleAddStaffMember}
+          onDeleteStaffMember={handleDeleteStaffMember}
+          onAssignStaffToClient={handleAssignStaffToClient}
         />
       ) : (
         /* LEVEL 2: Client's Case Tabs & Document Vault */
@@ -1137,6 +1235,10 @@ export function App() {
                 onCreateDocumentSlot={handleCreateDocumentSlot}
                 onUpdateDocumentStatus={handleUpdateDocumentStatus}
                 onDeleteDocument={handleDeleteDocument}
+                onBatchDeleteDocs={handleBatchDeleteDocs}
+                onBatchMoveDocsToFolder={handleBatchMoveDocsToFolder}
+                onBatchAutoNumberDocs={handleBatchAutoNumberDocs}
+                onBatchUpdateStatus={handleBatchUpdateStatus}
                 onShareDocument={(doc, e) => {
                   e.stopPropagation();
                   setActiveDocId(doc.id);
@@ -1232,6 +1334,7 @@ export function App() {
         isOpen={isNewClientOpen}
         onClose={() => setIsNewClientOpen(false)}
         onAddClient={handleAddClient}
+        staffList={staffList}
       />
 
       <UploadDocumentsModal
