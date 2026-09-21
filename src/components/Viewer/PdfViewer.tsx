@@ -124,16 +124,22 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [viewMode, setViewMode] = useState<'continuous' | 'single' | 'native'>('continuous');
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
-  // Helper to convert base64 data URI to Uint8Array
+  // Helper to convert base64 data URI to Uint8Array safely for files of any size
   const dataUriToUint8Array = (dataUri: string): Uint8Array => {
-    const base64 = dataUri.split(',')[1] || dataUri;
-    const binaryStr = atob(base64);
-    const len = binaryStr.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
+    try {
+      const base64 = dataUri.includes(',') ? dataUri.split(',')[1] : dataUri;
+      const cleanBase64 = base64.replace(/[\s\r\n]+/g, '');
+      const binaryStr = atob(cleanBase64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      return bytes;
+    } catch (err) {
+      console.warn('PDF data URI decode note:', err);
+      return new Uint8Array(0);
     }
-    return bytes;
   };
 
   // Prepare a proper application/pdf Blob URL (Required by Chromium/Safari to prevent blank white iframe)
@@ -143,11 +149,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     const prepareBlob = async () => {
       try {
+        if (!url || !url.trim()) {
+          if (active) setBlobUrl(null);
+          return;
+        }
         if (url.startsWith('data:')) {
           const bytes = dataUriToUint8Array(url);
-          const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
-          createdUrl = URL.createObjectURL(blob);
-          if (active) setBlobUrl(createdUrl);
+          if (bytes.length > 0) {
+            const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+            createdUrl = URL.createObjectURL(blob);
+            if (active) setBlobUrl(createdUrl);
+          } else {
+            if (active) setBlobUrl(url);
+          }
         } else {
           if (active) setBlobUrl(url);
         }
@@ -174,9 +188,16 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     const loadPdf = async () => {
       try {
+        if (!url || !url.trim()) {
+          setLoading(false);
+          return;
+        }
         let source: any = url;
-        if (url.startsWith('data:application/pdf') || url.startsWith('data:;base64,')) {
-          source = { data: dataUriToUint8Array(url) };
+        if (url.startsWith('data:')) {
+          const bytes = dataUriToUint8Array(url);
+          if (bytes.length > 0) {
+            source = { data: bytes };
+          }
         }
 
         const loadingTask = pdfjsLib.getDocument(source);

@@ -211,11 +211,23 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     }
   };
 
+  React.useEffect(() => {
+    const handleGlobalDragReset = () => {
+      setIsDragging(false);
+      setDragOverFolderId(null);
+      setReorderTargetId(null);
+    };
+    window.addEventListener('dragend', handleGlobalDragReset);
+    window.addEventListener('drop', handleGlobalDragReset);
+    return () => {
+      window.removeEventListener('dragend', handleGlobalDragReset);
+      window.removeEventListener('drop', handleGlobalDragReset);
+    };
+  }, []);
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     // Only show the upload overlay for external files from the OS/Desktop.
-    // When dragging an existing document card (text/doc-id), do NOT show the overlay
-    // so the user can drop it onto a specific folder target instead.
     const isExternalFile = e.dataTransfer.types.includes('Files');
     if (isExternalFile) {
       setIsDragging(true);
@@ -416,6 +428,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          setIsDragging(false);
           const sourceDocId = e.dataTransfer.getData('text/doc-id') || e.dataTransfer.getData('text/plain') || (window as any)._draggedDocId;
           if (sourceDocId && sourceDocId !== doc.id && onReorderDocument) {
             onReorderDocument(sourceDocId, doc.id, reorderPosition);
@@ -727,6 +740,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            setIsDragging(false);
             setDragOverFolderId(null);
             if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && onUploadFilesToFolder) {
               onUploadFilesToFolder(e.dataTransfer.files, folder.id);
@@ -939,6 +953,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 onDrop={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  setIsDragging(false);
                   setDragOverFolderId(null);
                   if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && onUploadFilesToFolder) {
                     onUploadFilesToFolder(e.dataTransfer.files, folder.id);
@@ -1186,10 +1201,25 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
       {/* Drag & Drop Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 bg-[#e8f0fe]/90 flex flex-col items-center justify-center p-6 text-center z-20 backdrop-blur-xs pointer-events-none">
+        <div 
+          onClick={() => setIsDragging(false)}
+          className="absolute inset-0 bg-[#e8f0fe]/95 flex flex-col items-center justify-center p-6 text-center z-30 backdrop-blur-xs cursor-pointer select-none animate-in fade-in duration-100"
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsDragging(false);
+            }}
+            className="absolute top-4 right-4 p-2 text-[#5f6368] hover:text-[#202124] hover:bg-black/5 rounded-full transition-colors"
+            title="Close overlay"
+          >
+            <X className="w-5 h-5" />
+          </button>
           <UploadCloud className="w-12 h-12 text-[#1a73e8] animate-bounce mb-2" />
           <p className="font-semibold text-sm text-[#1a73e8]">Drop documents here</p>
-          <p className="text-xs text-[#5f6368] mt-1">PDF, JPG, PNG, EPUB</p>
+          <p className="text-xs text-[#5f6368] mt-1">PDF, JPG, PNG, DOCX, and all file formats</p>
+          <span className="text-[11px] text-[#1a73e8] mt-3 underline font-medium">Click anywhere to close</span>
         </div>
       )}
 
@@ -1358,6 +1388,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 onDragLeave={() => setDragOverFolderId(null)}
                 onDrop={(e) => {
                   e.preventDefault();
+                  setIsDragging(false);
                   setDragOverFolderId(null);
                   if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                     onUploadFiles(e.dataTransfer.files);

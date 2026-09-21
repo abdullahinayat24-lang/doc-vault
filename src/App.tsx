@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   CollectionTab, 
   DocumentItem, 
@@ -59,26 +59,35 @@ import { ArrowLeft, ShieldAlert, Sparkles, KeyRound } from 'lucide-react';
 
 
 export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
-  const seenIds = new Set<string>();
-  const seenSignatures = new Set<string>();
-  const clean: DocumentItem[] = [];
+  const byId = new Map<string, DocumentItem>();
+  const bySig = new Map<string, string>();
 
   for (const d of docs) {
     if (!d || !d.id) continue;
-    if (seenIds.has(d.id)) continue;
 
-    // Deduplicate by signature within same collection and folder
     const signature = `${d.collectionId || 'default'}::${d.folderId || 'root'}::${d.name.trim().toLowerCase()}::${d.fileSize || 0}`;
-    if (seenSignatures.has(signature)) {
-      continue;
-    }
+    const existingId = bySig.get(signature) || (byId.has(d.id) ? d.id : undefined);
+    const existing = existingId ? byId.get(existingId) : undefined;
 
-    seenIds.add(d.id);
-    seenSignatures.add(signature);
-    clean.push(d);
+    if (existing) {
+      // Prioritize the document record that contains a valid non-empty file URL!
+      const validUrl = (d.url && d.url.length > 0) ? d.url : existing.url;
+      const merged: DocumentItem = {
+        ...existing,
+        ...d,
+        id: existing.id,
+        url: validUrl || '',
+        hasFile: Boolean((validUrl && validUrl.length > 0) || d.hasFile || existing.hasFile),
+        folderId: d.folderId || existing.folderId
+      };
+      byId.set(existing.id, merged);
+    } else {
+      byId.set(d.id, d);
+      bySig.set(signature, d.id);
+    }
   }
 
-  return clean;
+  return Array.from(byId.values());
 };
 
 export function App() {
@@ -208,13 +217,19 @@ export function App() {
     }
   };
 
+  const isHydrated = useRef(false);
+
   // Hydrate full documents from IndexedDB on startup, clean duplicates, and sync with Supabase
   useEffect(() => {
     idbGetDocuments().then(async (idbDocs) => {
+      isHydrated.current = true;
       if (idbDocs && idbDocs.length > 0) {
-        setDocuments((prev) => deduplicateDocuments([...prev, ...idbDocs]));
+        setDocuments((prev) => deduplicateDocuments([...idbDocs, ...prev]));
       }
-    }).catch((err) => console.warn('IndexedDB initial load note:', err));
+    }).catch((err) => {
+      isHydrated.current = true;
+      console.warn('IndexedDB initial load note:', err);
+    });
 
     if (user?.id) {
       fetchUserDocumentsFromSupabase(user.id).then((cloudDocs) => {
@@ -250,6 +265,7 @@ export function App() {
   }, [tabs]);
 
   useEffect(() => {
+    if (!isHydrated.current) return;
     saveDocuments(documents, user?.id);
   }, [documents, user?.id]);
 

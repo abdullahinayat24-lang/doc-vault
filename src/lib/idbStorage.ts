@@ -30,10 +30,24 @@ export const idbSaveDocuments = async (docs: DocumentItem[]): Promise<void> => {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.clear();
-    for (const doc of docs) {
-      store.put(doc);
-    }
+
+    const getAllReq = store.getAll();
+    getAllReq.onsuccess = () => {
+      const existingDocs: DocumentItem[] = getAllReq.result || [];
+      const existingMap = new Map(existingDocs.map((d) => [d.id, d]));
+
+      store.clear();
+      for (const doc of docs) {
+        const existing = existingMap.get(doc.id);
+        const validUrl = doc.url && doc.url.length > 0 ? doc.url : existing?.url;
+        store.put({
+          ...doc,
+          url: validUrl || '',
+          hasFile: Boolean((validUrl && validUrl.length > 0) || doc.hasFile)
+        });
+      }
+    };
+
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
