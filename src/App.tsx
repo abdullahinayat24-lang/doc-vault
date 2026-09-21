@@ -59,6 +59,23 @@ export function App() {
     return params.get('share');
   });
 
+  // Decode embedded document payload from URL hash (#data=...) for cross-device shared links
+  const [sharedPayload] = useState<{ share: ShareRecord; docs: DocumentItem[] } | null>(() => {
+    try {
+      const hash = window.location.hash;
+      if (hash.startsWith('#data=')) {
+        const encoded = hash.slice(6); // remove '#data='
+        const decoded = JSON.parse(decodeURIComponent(atob(encoded)));
+        if (decoded && decoded.share && Array.isArray(decoded.docs)) {
+          return decoded as { share: ShareRecord; docs: DocumentItem[] };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to decode shared link payload:', e);
+    }
+    return null;
+  });
+
   // Main state - null profile by default prompts Create Account / Sign In
   const [user, setUser] = useState<SolicitorProfile | null>(() => getSolicitorProfile());
   const [clients, setClients] = useState<ClientRecord[]>(() => getClients());
@@ -678,15 +695,30 @@ export function App() {
     );
   };
 
+  const handleReorderDocument = (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => {
+    setDocuments(prev => {
+      const result = [...prev];
+      const srcIdx = result.findIndex(d => d.id === sourceDocId);
+      if (srcIdx < 0) return prev;
+      const [moved] = result.splice(srcIdx, 1);
+      const newTgtIdx = result.findIndex(d => d.id === targetDocId);
+      if (newTgtIdx < 0) return prev;
+      result.splice(position === 'before' ? newTgtIdx : newTgtIdx + 1, 0, moved);
+      saveDocuments(result);
+      return result;
+    });
+  };
+
   // If viewing a shared link (?share=...)
   if (shareParam) {
-    const shares = getShares();
-    const shareRecord = shares.find((s) => s.id === shareParam) || null;
+    // Prefer embedded URL payload (works cross-device), fall back to localStorage
+    const shareRecord = sharedPayload?.share || (getShares().find((s) => s.id === shareParam) ?? null);
+    const sharedDocs = sharedPayload?.docs ?? documents;
 
     return (
       <SharedViewer
         shareRecord={shareRecord}
-        documents={documents}
+        documents={sharedDocs}
         tabs={tabs}
         onUploadClientFile={handleUploadToFileSlot}
         onClientUploadNewDoc={async (collectionId, file) => {
@@ -839,6 +871,7 @@ export function App() {
                 onDeleteFolder={handleDeleteFolder}
                 onMoveDocToFolder={handleMoveDocToFolder}
                 onUploadFilesToFolder={handleUploadFilesToFolder}
+                onReorderDocument={handleReorderDocument}
                 tabTitle={activeTab.name}
               />
             </div>
@@ -883,6 +916,7 @@ export function App() {
         onClose={() => setIsShareOpen(false)}
         currentDocument={activeDoc}
         selectedDocuments={selectedDocuments}
+        allTabDocuments={tabDocuments}
         currentTab={activeTab}
         onSaveShare={(share) => saveShare(share)}
         user={user}
@@ -917,7 +951,6 @@ export function App() {
       <PricingModal
         isOpen={isPricingOpen}
         onClose={() => setIsPricingOpen(false)}
-        onOpenDiscountKeys={() => setIsDiscountKeysOpen(true)}
       />
 
       <ChangePinModal

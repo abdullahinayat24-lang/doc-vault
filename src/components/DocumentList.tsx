@@ -70,6 +70,7 @@ interface DocumentListProps {
   onDeleteFolder?: (folderId: string) => void;
   onMoveDocToFolder?: (docId: string, targetFolderId?: string) => void;
   onUploadFilesToFolder?: (files: FileList | File[], folderId?: string) => void;
+  onReorderDocument?: (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => void;
   tabTitle: string;
 }
 
@@ -97,6 +98,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onDeleteFolder,
   onMoveDocToFolder,
   onUploadFilesToFolder,
+  onReorderDocument,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +107,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
   const [targetFolderUploadId, setTargetFolderUploadId] = useState<string | null>(null);
+
+  // Reordering documents drag state
+  const [reorderTargetId, setReorderTargetId] = useState<string | null>(null);
+  const [reorderPosition, setReorderPosition] = useState<'before' | 'after'>('after');
 
   // Document inline rename state
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
@@ -346,6 +352,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       );
     }
 
+    const isReorderTarget = reorderTargetId === doc.id;
+
     return (
       <div
         key={doc.id}
@@ -353,6 +361,33 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         onDragStart={(e) => {
           e.dataTransfer.setData('text/doc-id', doc.id);
           e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('text/doc-id')) {
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pos = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+            if (reorderTargetId !== doc.id || reorderPosition !== pos) {
+              setReorderTargetId(doc.id);
+              setReorderPosition(pos);
+            }
+          }
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          if (reorderTargetId === doc.id) {
+            setReorderTargetId(null);
+          }
+        }}
+        onDrop={(e) => {
+          const sourceDocId = e.dataTransfer.getData('text/doc-id');
+          if (sourceDocId && sourceDocId !== doc.id && onReorderDocument) {
+            e.preventDefault();
+            e.stopPropagation();
+            onReorderDocument(sourceDocId, doc.id, reorderPosition);
+            setReorderTargetId(null);
+          }
         }}
         onClick={() => {
           if (doc.hasFile) {
@@ -364,6 +399,13 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           isActive ? 'ring-1 ring-inset ring-[#1a73e8]' : ''
         } ${depth > 0 ? 'border-b border-[#f1f3f4]' : ''}`}
       >
+        {/* Reorder visual indicator line */}
+        {isReorderTarget && reorderPosition === 'before' && (
+          <div className="absolute -top-1 left-0 right-0 h-1.5 bg-[#1a73e8] z-30 rounded-full shadow-md pointer-events-none" />
+        )}
+        {isReorderTarget && reorderPosition === 'after' && (
+          <div className="absolute -bottom-1 left-0 right-0 h-1.5 bg-[#1a73e8] z-30 rounded-full shadow-md pointer-events-none" />
+        )}
         {/* Grip handle for drag */}
         <div 
           className="mt-1 cursor-grab active:cursor-grabbing text-[#dadce0] group-hover:text-[#5f6368] transition-colors flex-shrink-0"

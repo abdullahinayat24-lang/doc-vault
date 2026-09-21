@@ -239,48 +239,48 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
       />
 
       {/* Header with Solicitor Firm Details */}
-      <header className="h-16 bg-white border-b border-[#dadce0] px-4 sm:px-6 flex items-center justify-between gap-4 z-30 flex-shrink-0">
-        <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-[#dadce0] px-3 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 z-30 flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
           {shareRecord.companyLogo ? (
-            <img src={shareRecord.companyLogo} alt="" className="w-9 h-9 rounded-xl object-cover border shadow-xs" />
+            <img src={shareRecord.companyLogo} alt="" className="w-9 h-9 rounded-xl object-cover border shadow-xs flex-shrink-0" />
           ) : (
-            <div className="w-9 h-9 rounded-xl bg-[#1a73e8] text-white flex items-center justify-center font-bold text-sm">
+            <div className="w-9 h-9 rounded-xl bg-[#1a73e8] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
               <Building className="w-5 h-5" />
             </div>
           )}
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-['Google_Sans',sans-serif] font-bold text-sm sm:text-base text-[#202124]">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-['Google_Sans',sans-serif] font-bold text-sm sm:text-base text-[#202124] truncate max-w-[180px] sm:max-w-none">
                 {shareRecord.companyName || 'Solicitor Client Portal'}
               </span>
-              <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
+              <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full flex-shrink-0 ${
                 shareRecord.shareType === 'uploader'
                   ? 'bg-[#e8f0fe] text-[#1a73e8] border border-[#c2e7ff]'
                   : 'bg-[#fef7e0] text-[#b06000] border border-[#fce8b2]'
               }`}>
-                {shareRecord.shareType === 'uploader' ? 'Document Uploader' : 'Document Viewer'}
+                {shareRecord.shareType === 'uploader' ? 'Uploader' : 'Viewer'}
               </span>
             </div>
-            <p className="text-[11px] text-[#5f6368] truncate max-w-xs">
+            <p className="text-[11px] text-[#5f6368] truncate max-w-[220px] sm:max-w-xs">
               {shareRecord.title} • {totalDocsCount} documents
             </p>
           </div>
         </div>
 
         {/* View Switcher & Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Mode switch pills */}
           <div className="flex items-center bg-[#f1f3f4] p-0.5 rounded-xl border border-[#dadce0] text-xs font-medium">
             <button
               onClick={() => setActiveViewMode('upload_portal')}
-              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
                 activeViewMode === 'upload_portal'
                   ? 'bg-white text-[#1a73e8] font-bold shadow-xs'
                   : 'text-[#5f6368] hover:text-[#202124]'
               }`}
             >
               <UploadCloud className="w-3.5 h-3.5" />
-              <span>Upload Portal</span>
+              <span className="hidden xs:inline sm:inline">Upload Portal</span>
               {missingDocsCount > 0 && (
                 <span className="bg-[#d93025] text-white text-[10px] px-1.5 rounded-full font-bold">
                   {missingDocsCount}
@@ -290,14 +290,14 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
 
             <button
               onClick={() => setActiveViewMode('viewer')}
-              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
                 activeViewMode === 'viewer'
                   ? 'bg-white text-[#1a73e8] font-bold shadow-xs'
                   : 'text-[#5f6368] hover:text-[#202124]'
               }`}
             >
               <Eye className="w-3.5 h-3.5" />
-              <span>Document Viewer</span>
+              <span className="hidden xs:inline sm:inline">Viewer</span>
             </button>
           </div>
 
@@ -322,6 +322,7 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
           )}
         </div>
       </header>
+
 
       {/* Main Content Area */}
       {activeViewMode === 'upload_portal' ? (

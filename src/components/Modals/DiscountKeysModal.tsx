@@ -8,41 +8,7 @@ interface DiscountKeysModalProps {
 }
 
 export const DiscountKeysModal: React.FC<DiscountKeysModalProps> = ({ isOpen, onClose }) => {
-  const [codes, setCodes] = useState<PromoCode[]>(() => {
-    const existing = getPromoCodes();
-    if (existing.length === 0) {
-      // Seed initial default discount keys
-      const initial: PromoCode[] = [
-        {
-          id: 'seed-1',
-          code: 'SPECIAL50',
-          label: 'Special 50% Solicitor Discount',
-          discountPct: 50,
-          active: true,
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 'seed-2',
-          code: 'VIP100',
-          label: '100% Free Lifetime VIP Key',
-          discountPct: 100,
-          active: true,
-          createdAt: new Date().toISOString()
-        },
-        {
-          id: 'seed-3',
-          code: 'SAVE20',
-          label: '20% Early Partner Discount',
-          discountPct: 20,
-          active: true,
-          createdAt: new Date().toISOString()
-        }
-      ];
-      initial.forEach(savePromoCode);
-      return initial;
-    }
-    return existing;
-  });
+  const [codes, setCodes] = useState<PromoCode[]>(() => getPromoCodes());
 
   const [newCode, setNewCode]               = useState('');
   const [newDiscount, setNewDiscount]       = useState('25');
@@ -204,15 +170,20 @@ export const DiscountKeysModal: React.FC<DiscountKeysModalProps> = ({ isOpen, on
             </div>
 
             <div className="space-y-2">
-              {codes.map((promo) => (
-                <div
-                  key={promo.id}
-                  className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
-                    promo.active
-                      ? 'bg-white border-[#dadce0] hover:border-[#1a73e8]/50 shadow-xs'
-                      : 'bg-[#f1f3f4] border-transparent opacity-60'
-                  }`}
-                >
+              {codes.length === 0 ? (
+                <div className="p-6 text-center bg-[#f8fafd] border border-dashed border-[#dadce0] rounded-2xl text-xs text-[#5f6368]">
+                  No custom discount keys created yet. Fill out the form above to generate a code, then share it privately with your client.
+                </div>
+              ) : (
+                codes.map((promo) => (
+                  <div
+                    key={promo.id}
+                    className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                      promo.active
+                        ? 'bg-white border-[#dadce0] hover:border-[#1a73e8]/50 shadow-xs'
+                        : 'bg-[#f1f3f4] border-transparent opacity-60'
+                    }`}
+                  >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-sm font-extrabold text-[#202124] tracking-wider">
@@ -262,7 +233,8 @@ export const DiscountKeysModal: React.FC<DiscountKeysModalProps> = ({ isOpen, on
                     </button>
                   </div>
                 </div>
-              ))}
+              ))
+            )}
             </div>
           </div>
         </div>

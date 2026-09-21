@@ -13,13 +13,12 @@ import {
   Gift,
   Clock
 } from 'lucide-react';
-import { getTrialStatus } from '../../lib/storage';
+import { getTrialStatus, getPromoCodes } from '../../lib/storage';
 
 interface PricingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectPlan?: (planName: string) => void;
-  onOpenDiscountKeys?: () => void;
 }
 
 // ============================================================================
@@ -29,19 +28,10 @@ const OWNER_EMAIL = 'rana.abdullah.inayat@gmail.com';
 
 const PAYPAL_USERNAME: string = ''; 
 
-// Promo codes — stored and validated in storage.ts
-const VALID_PROMO_CODES: Record<string, { label: string; discountPct: number }> = {
-  'SPECIAL50':  { label: '50% Special Solicitor Discount', discountPct: 50 },
-  'VIP100':     { label: '100% Free Lifetime VIP Key', discountPct: 100 },
-  'SAVE20':     { label: '20% Early Partner Discount', discountPct: 20 },
-};
-
-
 export const PricingModal: React.FC<PricingModalProps> = ({
   isOpen,
   onClose,
-  onSelectPlan,
-  onOpenDiscountKeys
+  onSelectPlan
 }) => {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
   const [promoCode, setPromoCode]       = useState('');
@@ -55,22 +45,17 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   const applyPromo = () => {
     const code = promoCode.trim().toUpperCase();
-    // Check against hardcoded codes first
-    if (VALID_PROMO_CODES[code]) {
-      setPromoApplied(VALID_PROMO_CODES[code]);
+    if (!code) return;
+
+    // Check against promo codes created by the firm owner
+    const storedCodes = getPromoCodes();
+    const found = storedCodes.find((c) => c.code === code && c.active);
+    if (found) {
+      setPromoApplied({ label: found.label, discountPct: found.discountPct });
       setPromoError('');
       return;
     }
-    // Check localStorage-stored codes (admin-generated)
-    try {
-      const stored = JSON.parse(localStorage.getItem('docvault_promo_codes') || '[]');
-      const found = stored.find((c: any) => c.code === code && c.active);
-      if (found) {
-        setPromoApplied({ label: found.label, discountPct: found.discountPct });
-        setPromoError('');
-        return;
-      }
-    } catch {}
+
     setPromoError('Invalid or expired promo code.');
     setPromoApplied(null);
   };
@@ -302,26 +287,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
         {/* Promo Code Section */}
         <div className="px-6 py-3 border-t border-[#dadce0] bg-[#f8fafd]">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <button onClick={() => setShowPromo(p => !p)}
-              className="flex items-center gap-1.5 text-xs text-[#1a73e8] hover:underline font-medium">
-              <Tag className="w-3.5 h-3.5" />
-              {showPromo ? 'Hide promo code' : 'Have a special discount key?'}
-            </button>
-            {onOpenDiscountKeys && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenDiscountKeys();
-                }}
-                className="text-xs text-[#5f6368] hover:text-[#1a73e8] flex items-center gap-1 hover:underline font-medium"
-              >
-                <Tag className="w-3 h-3 text-[#1a73e8]" />
-                <span>Manage Discount Keys</span>
-              </button>
-            )}
-          </div>
+          <button onClick={() => setShowPromo(p => !p)}
+            className="flex items-center gap-1.5 text-xs text-[#1a73e8] hover:underline font-medium">
+            <Tag className="w-3.5 h-3.5" />
+            {showPromo ? 'Hide promo code' : 'Have a promo code?'}
+          </button>
           {showPromo && (
             <div className="mt-2.5 flex items-center gap-2">
               <input

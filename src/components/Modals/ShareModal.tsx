@@ -20,6 +20,7 @@ interface ShareModalProps {
   onClose: () => void;
   currentDocument: DocumentItem | null;
   selectedDocuments: DocumentItem[];
+  allTabDocuments?: DocumentItem[];
   currentTab: CollectionTab;
   onSaveShare: (share: ShareRecord) => void;
   user: SolicitorProfile;
@@ -30,6 +31,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   onClose,
   currentDocument,
   selectedDocuments,
+  allTabDocuments = [],
   currentTab,
   onSaveShare,
   user
@@ -53,16 +55,20 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
     let targetIds: string[] = [];
     let title = '';
+    let targetDocs: DocumentItem[] = [];
 
     if (scope === 'single' && currentDocument) {
       targetIds = [currentDocument.id];
       title = currentDocument.name;
+      targetDocs = [currentDocument];
     } else if (scope === 'multiple') {
       targetIds = selectedDocuments.map((d) => d.id);
       title = `${selectedDocuments.length} Documents`;
+      targetDocs = selectedDocuments;
     } else {
       targetIds = [currentTab.id];
       title = `${currentTab.name} (${currentTab.clientName || 'Client Case'})`;
+      targetDocs = allTabDocuments && allTabDocuments.length > 0 ? allTabDocuments : (currentDocument ? [currentDocument] : selectedDocuments);
     }
 
     const newRecord: ShareRecord = {
@@ -82,7 +88,40 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
     onSaveShare(newRecord);
 
-    const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+    // Prepare payload documents so the client portal works on any device/browser
+    const payloadDocs = targetDocs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      collectionId: d.collectionId,
+      fileType: d.fileType,
+      status: d.status,
+      hasFile: d.hasFile,
+      fileSize: d.fileSize || 0,
+      notes: d.notes,
+      description: d.description,
+      rotation: d.rotation || 0,
+      url: shareType === 'viewer' && d.url && d.url.length < 500000 ? d.url : '',
+      pages: d.pages?.map(p => ({
+        id: p.id,
+        name: p.name,
+        fileType: p.fileType,
+        rotation: p.rotation,
+        url: shareType === 'viewer' && p.url && p.url.length < 500000 ? p.url : ''
+      }))
+    }));
+
+    let encodedData = '';
+    try {
+      const payload = { share: newRecord, docs: payloadDocs };
+      encodedData = btoa(encodeURIComponent(JSON.stringify(payload)));
+    } catch (e) {
+      console.warn('Payload encoding fallback:', e);
+    }
+
+    const shareUrl = encodedData 
+      ? `${window.location.origin}${window.location.pathname}?share=${shareId}#data=${encodedData}`
+      : `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+
     setGeneratedLink(shareUrl);
   };
 

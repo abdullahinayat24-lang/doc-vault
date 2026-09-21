@@ -74,11 +74,12 @@ export const Header: React.FC<HeaderProps> = ({
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const trial = getTrialStatus();
+  const isOwnerOrAdmin = user.email?.toLowerCase() === 'rana.abdullah.inayat@gmail.com' || user.role === 'admin';
 
   return (
-    <header className="h-16 bg-white border-b border-[#dadce0] px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
+    <header className="h-16 bg-white border-b border-[#dadce0] px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 sticky top-0 z-30 select-none">
       {/* Brand & Breadcrumbs */}
-      <div className="flex items-center gap-3 min-w-max">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         {selectedClient ? (
           <div className="flex items-center gap-2">
             <button
@@ -382,7 +383,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>Change Lock PIN</span>
                     </button>
                   )}
-                  {onOpenDiscountKeys && (
+                  {onOpenDiscountKeys && isOwnerOrAdmin && (
                     <button
                       onClick={() => {
                         setShowUserMenu(false);
