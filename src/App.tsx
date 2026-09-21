@@ -35,6 +35,7 @@ import { AuthModal } from './components/Modals/AuthModal';
 import { SharedViewer } from './components/SharedViewer';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
+import { AuthScreen } from './components/AuthScreen';
 
 export function App() {
   // Check if viewing a shared link (?share=...)
@@ -43,16 +44,16 @@ export function App() {
     return params.get('share');
   });
 
-  // Main state
-  const [user, setUser] = useState<SolicitorProfile>(() => getSolicitorProfile());
+  // Main state - null profile by default prompts Create Account / Sign In
+  const [user, setUser] = useState<SolicitorProfile | null>(() => getSolicitorProfile());
   const [clients, setClients] = useState<ClientRecord[]>(() => getClients());
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
   const [tabs, setTabs] = useState<CollectionTab[]>(() => getInitialTabs());
   const [documents, setDocuments] = useState<DocumentItem[]>(() => getInitialDocuments());
   
-  const [activeTabId, setActiveTabId] = useState<string>('tab-app-2024');
-  const [activeDocId, setActiveDocId] = useState<string | null>('doc-pass-2024');
+  const [activeTabId, setActiveTabId] = useState<string>('');
+  const [activeDocId, setActiveDocId] = useState<string | null>(null);
 
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -176,9 +177,10 @@ export function App() {
     if (clientFirstTab) {
       setActiveTabId(clientFirstTab.id);
       const firstDoc = documents.find((d) => d.collectionId === clientFirstTab.id);
-      if (firstDoc) {
-        setActiveDocId(firstDoc.id);
-      }
+      setActiveDocId(firstDoc ? firstDoc.id : null);
+    } else {
+      setActiveTabId('');
+      setActiveDocId(null);
     }
   };
 
@@ -416,6 +418,18 @@ export function App() {
     );
   }
 
+  // If not logged in, show the Create Your Account or Sign In screen
+  if (!user) {
+    return (
+      <AuthScreen
+        onAuthenticated={(profile) => {
+          setUser(profile);
+          saveSolicitorProfile(profile);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35]">
       {/* Top Header */}
@@ -429,8 +443,9 @@ export function App() {
         onOpenShare={() => setIsShareOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
         onSignOut={() => {
-          if (confirm('Sign out and lock workspace?')) {
-            setIsLocked(true);
+          if (confirm('Are you sure you want to sign out?')) {
+            saveSolicitorProfile(null);
+            setUser(null);
           }
         }}
         selectedCount={selectedDocIds.length}

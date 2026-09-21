@@ -2,7 +2,6 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord } from '../types';
-import { initialTabs, initialDocuments, initialSolicitorProfile, initialClients } from './sampleDocs';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const CLIENTS_KEY = 'docvault_clients';
@@ -21,7 +20,7 @@ export const getClients = (): ClientRecord[] => {
       // ignore
     }
   }
-  return initialClients;
+  return []; // Empty by default
 };
 
 export const saveClients = (clients: ClientRecord[]) => {
@@ -37,7 +36,7 @@ export const getInitialTabs = (): CollectionTab[] => {
       // ignore
     }
   }
-  return initialTabs;
+  return []; // Empty by default
 };
 
 export const saveTabs = (tabs: CollectionTab[]) => {
@@ -53,14 +52,14 @@ export const getInitialDocuments = (): DocumentItem[] => {
       // ignore
     }
   }
-  return initialDocuments;
+  return []; // Empty by default
 };
 
 export const saveDocuments = (docs: DocumentItem[]) => {
   localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
 };
 
-export const getSolicitorProfile = (): SolicitorProfile => {
+export const getSolicitorProfile = (): SolicitorProfile | null => {
   const saved = localStorage.getItem(PROFILE_KEY);
   if (saved) {
     try {
@@ -69,11 +68,19 @@ export const getSolicitorProfile = (): SolicitorProfile => {
       // ignore
     }
   }
-  return initialSolicitorProfile;
+  return null; // Null by default -> Triggers Create Account / Sign In screen
 };
 
-export const saveSolicitorProfile = (profile: SolicitorProfile) => {
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+export const saveSolicitorProfile = (profile: SolicitorProfile | null) => {
+  if (!profile) {
+    localStorage.removeItem(PROFILE_KEY);
+  } else {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  }
+};
+
+export const clearSession = () => {
+  localStorage.removeItem(PROFILE_KEY);
 };
 
 export const getLockPin = (): string => {
