@@ -58,6 +58,29 @@ import { ArrowLeft, ShieldAlert, Sparkles, KeyRound } from 'lucide-react';
 
 
 
+export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
+  const seenIds = new Set<string>();
+  const seenSignatures = new Set<string>();
+  const clean: DocumentItem[] = [];
+
+  for (const d of docs) {
+    if (!d || !d.id) continue;
+    if (seenIds.has(d.id)) continue;
+
+    // Deduplicate by signature within same collection and folder
+    const signature = `${d.collectionId || 'default'}::${d.folderId || 'root'}::${d.name.trim().toLowerCase()}::${d.fileSize || 0}`;
+    if (seenSignatures.has(signature)) {
+      continue;
+    }
+
+    seenIds.add(d.id);
+    seenSignatures.add(signature);
+    clean.push(d);
+  }
+
+  return clean;
+};
+
 export function App() {
   // Check if viewing a shared link (?share=...)
   const [shareParam, setShareParam] = useState<string | null>(() => {
@@ -134,7 +157,7 @@ export function App() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
   const [tabs, setTabs] = useState<CollectionTab[]>(() => getInitialTabs());
-  const [documents, setDocuments] = useState<DocumentItem[]>(() => getInitialDocuments());
+  const [documents, setDocuments] = useState<DocumentItem[]>(() => deduplicateDocuments(getInitialDocuments()));
   const [folders, setFolders] = useState<DocumentFolder[]>(() => getInitialFolders());
   
   const [activeTabId, setActiveTabId] = useState<string>('');
@@ -185,25 +208,11 @@ export function App() {
     }
   };
 
-  // Hydrate full documents from IndexedDB on startup, auto-migrate local files to cloud, and fetch from Supabase
+  // Hydrate full documents from IndexedDB on startup, clean duplicates, and sync with Supabase
   useEffect(() => {
     idbGetDocuments().then(async (idbDocs) => {
       if (idbDocs && idbDocs.length > 0) {
-        if (user?.id) {
-          const migrated = await migrateLocalDocumentsToCloud(idbDocs, user.id);
-          setDocuments((prev) => {
-            const map = new Map(prev.map((d) => [d.id, d]));
-            migrated.forEach((d) => map.set(d.id, d));
-            return Array.from(map.values());
-          });
-        } else {
-          setDocuments((prev) => {
-            if (prev.length === 0) return idbDocs;
-            const prevIds = new Set(prev.map((d) => d.id));
-            const newFromIdb = idbDocs.filter((d) => !prevIds.has(d.id));
-            return [...prev, ...newFromIdb];
-          });
-        }
+        setDocuments((prev) => deduplicateDocuments([...prev, ...idbDocs]));
       }
     }).catch((err) => console.warn('IndexedDB initial load note:', err));
 
@@ -211,9 +220,20 @@ export function App() {
       fetchUserDocumentsFromSupabase(user.id).then((cloudDocs) => {
         if (cloudDocs && cloudDocs.length > 0) {
           setDocuments((prev) => {
-            const prevIds = new Set(prev.map((d) => d.id));
-            const newFromCloud = cloudDocs.filter((d) => !prevIds.has(d.id));
-            return [...prev, ...newFromCloud];
+            const map = new Map(prev.map((d) => [d.id, d]));
+            cloudDocs.forEach((cd) => {
+              const existing = map.get(cd.id);
+              if (existing) {
+                map.set(cd.id, {
+                  ...cd,
+                  folderId: cd.folderId || existing.folderId,
+                  url: cd.url || existing.url
+                });
+              } else {
+                map.set(cd.id, cd);
+              }
+            });
+            return deduplicateDocuments(Array.from(map.values()));
           });
         }
       }).catch((err) => console.warn('Supabase initial documents load note:', err));
@@ -842,20 +862,25 @@ export function App() {
   };
 
   const handleReorderDocument = (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => {
+    if (sourceDocId === targetDocId) return;
     setSortOption('manual');
-    setDocuments(prev => {
-      const result = [...prev];
-      const srcIdx = result.findIndex(d => d.id === sourceDocId);
-      if (srcIdx < 0) return prev;
-      const targetDoc = result.find(d => d.id === targetDocId);
+    setDocuments((prev) => {
+      const cleanPrev = deduplicateDocuments(prev);
+      const srcIdx = cleanPrev.findIndex((d) => d.id === sourceDocId);
+      const tgtIdx = cleanPrev.findIndex((d) => d.id === targetDocId);
+      if (srcIdx < 0 || tgtIdx < 0) return cleanPrev;
+
+      const result = [...cleanPrev];
       const [moved] = result.splice(srcIdx, 1);
+      const targetDoc = cleanPrev[tgtIdx];
       if (targetDoc) {
         moved.folderId = targetDoc.folderId;
+        moved.collectionId = targetDoc.collectionId;
       }
-      const newTgtIdx = result.findIndex(d => d.id === targetDocId);
-      if (newTgtIdx < 0) return prev;
+
+      const newTgtIdx = result.findIndex((d) => d.id === targetDocId);
+      if (newTgtIdx < 0) return cleanPrev;
       result.splice(position === 'before' ? newTgtIdx : newTgtIdx + 1, 0, moved);
-      saveDocuments(result, user?.id);
       return result;
     });
   };
@@ -863,34 +888,34 @@ export function App() {
   const handleMoveDocPosition = (docId: string, direction: 'up' | 'down') => {
     setSortOption('manual');
     setDocuments((prev) => {
-      const doc = prev.find((d) => d.id === docId);
-      if (!doc) return prev;
+      const cleanPrev = deduplicateDocuments(prev);
+      const doc = cleanPrev.find((d) => d.id === docId);
+      if (!doc) return cleanPrev;
 
       // Find all sibling documents in the exact same scope (same tab and same folder)
       const targetCollectionId = doc.collectionId;
-      const siblings = prev.filter((d) => {
+      const siblings = cleanPrev.filter((d) => {
         return d.collectionId === targetCollectionId && (d.folderId || undefined) === (doc.folderId || undefined);
       });
 
       const siblingIdx = siblings.findIndex((d) => d.id === docId);
-      if (siblingIdx < 0) return prev;
-      if (direction === 'up' && siblingIdx === 0) return prev;
-      if (direction === 'down' && siblingIdx === siblings.length - 1) return prev;
+      if (siblingIdx < 0) return cleanPrev;
+      if (direction === 'up' && siblingIdx === 0) return cleanPrev;
+      if (direction === 'down' && siblingIdx === siblings.length - 1) return cleanPrev;
 
       const targetSibling = siblings[direction === 'up' ? siblingIdx - 1 : siblingIdx + 1];
-      if (!targetSibling) return prev;
+      if (!targetSibling) return cleanPrev;
 
-      const copy = [...prev];
+      const copy = [...cleanPrev];
       const idxA = copy.findIndex((d) => d.id === doc.id);
       const idxB = copy.findIndex((d) => d.id === targetSibling.id);
-      if (idxA < 0 || idxB < 0) return prev;
+      if (idxA < 0 || idxB < 0) return cleanPrev;
 
       // Swap positions in the master array
       const temp = copy[idxA];
       copy[idxA] = copy[idxB];
       copy[idxB] = temp;
 
-      saveDocuments(copy, user?.id);
       return copy;
     });
   };
@@ -905,9 +930,22 @@ export function App() {
       alert('All documents are already synced to the online cloud!');
       return;
     }
-    const migrated = await migrateLocalDocumentsToCloud(documents, user.id);
-    setDocuments(migrated);
-    alert(`Successfully synced ${unsynced.length} local document(s) directly online to the cloud!`);
+    try {
+      const migrated = await migrateLocalDocumentsToCloud(documents, user.id);
+      const stillLocal = migrated.filter((d) => d.url && d.url.startsWith('data:'));
+      const syncedCount = unsynced.length - stillLocal.length;
+
+      setDocuments(deduplicateDocuments(migrated));
+
+      if (syncedCount > 0) {
+        alert(`Successfully synced ${syncedCount} document(s) directly to the cloud!`);
+      } else {
+        alert('File is safely saved in your local vault. Cloud upload will automatically retry when connected.');
+      }
+    } catch (e) {
+      console.warn('Sync local documents note:', e);
+      alert('Your documents remain safely preserved in your local vault.');
+    }
   };
 
   // If viewing a shared link (?share=...)

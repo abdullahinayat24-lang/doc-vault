@@ -144,27 +144,50 @@ export const uploadFileOnline = async (
     }
   }
 
-  // Strategy 2: Fast reliable online cloud binary store (Bytebin)
+  // Strategy 2: High-capacity cloud storage (Litterbox, up to 1GB with CORS)
   try {
-    const res = await fetch('https://bytebin.lucko.me/post', {
+    const fd = new FormData();
+    fd.append('reqtype', 'fileupload');
+    fd.append('time', '72h');
+    fd.append('fileToUpload', file, safeName);
+
+    const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
       method: 'POST',
-      headers: {
-        'Content-Type': file.type || 'application/octet-stream'
-      },
-      body: file
+      body: fd
     });
     if (res.ok) {
-      const json = await res.json();
-      if (json && json.key) {
-        const onlineUrl = `https://bytebin.lucko.me/${json.key}`;
+      const onlineUrl = (await res.text()).trim();
+      if (onlineUrl && onlineUrl.startsWith('http')) {
         return { url: onlineUrl, online: true };
       }
     }
   } catch (e) {
-    console.warn('Bytebin online upload fallback note:', e);
+    console.warn('Litterbox upload note:', e);
   }
 
-  // Strategy 3: Local Data URL fallback
+  // Strategy 3: Fast reliable online cloud binary store (Bytebin for files < 10MB)
+  if (file.size < 10 * 1024 * 1024) {
+    try {
+      const res = await fetch('https://bytebin.lucko.me/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream'
+        },
+        body: file
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.key) {
+          const onlineUrl = `https://bytebin.lucko.me/${json.key}`;
+          return { url: onlineUrl, online: true };
+        }
+      }
+    } catch (e) {
+      console.warn('Bytebin online upload fallback note:', e);
+    }
+  }
+
+  // Strategy 4: Local Data URL fallback (stored safely in browser IndexedDB)
   return new Promise<{ url: string; online: boolean }>((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => resolve({ url: (e.target?.result as string) || '', online: false });
@@ -201,10 +224,16 @@ export const syncSingleDocumentToSupabase = async (doc: DocumentItem, solicitorI
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
 
-    const docId = isUUID(doc.id) ? doc.id : generateUUID();
+    const docId = doc.id;
 
     // Prevent huge base64 payloads from blowing up Supabase HTTP payload limits
     const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+
+    // Encode folderId in notes so it persists even without explicit folder_id schema column
+    let notesWithFolder = doc.notes || '';
+    if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
+      notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
+    }
 
     const payload: any = {
       id: docId,
@@ -215,7 +244,7 @@ export const syncSingleDocumentToSupabase = async (doc: DocumentItem, solicitorI
       content: doc.content || null,
       has_file: doc.hasFile !== false,
       status: doc.status || 'pending',
-      notes: doc.notes || ''
+      notes: notesWithFolder
     };
 
     if (isUUID(resolvedSolicitorId)) {
@@ -247,8 +276,13 @@ export const syncDocumentsToSupabase = async (docs: DocumentItem[], solicitorId?
     const resolvedSolicitorId = solicitorId || authUser?.id;
 
     for (const doc of docs.slice(0, 50)) {
-      const docId = isUUID(doc.id) ? doc.id : generateUUID();
+      const docId = doc.id;
       const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+
+      let notesWithFolder = doc.notes || '';
+      if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
+        notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
+      }
 
       const payload: any = {
         id: docId,
@@ -259,7 +293,7 @@ export const syncDocumentsToSupabase = async (docs: DocumentItem[], solicitorId?
         content: doc.content || null,
         has_file: doc.hasFile !== false,
         status: doc.status || 'pending',
-        notes: doc.notes || ''
+        notes: notesWithFolder
       };
       if (isUUID(resolvedSolicitorId)) {
         payload.solicitor_id = resolvedSolicitorId;
@@ -291,21 +325,32 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
     const { data, error } = await query;
     if (error || !data || data.length === 0) return null;
 
-    return data.map((d: any): DocumentItem => ({
-      id: d.id,
-      name: d.name,
-      fileType: d.file_type || 'pdf',
-      fileSize: d.file_size || 0,
-      url: d.url || '',
-      content: d.content || undefined,
-      hasFile: d.has_file !== false,
-      status: d.status || 'pending',
-      notes: d.notes || '',
-      collectionId: d.collection_id || 'default',
-      clientId: d.client_id || undefined,
-      createdAt: d.created_at || new Date().toISOString(),
-      updatedAt: d.updated_at || new Date().toISOString()
-    }));
+    return data.map((d: any): DocumentItem => {
+      let folderId: string | undefined = d.folder_id || undefined;
+      let cleanNotes = d.notes || '';
+      const match = cleanNotes.match(/\[folderId:([^\]]+)\]/);
+      if (match) {
+        folderId = match[1];
+        cleanNotes = cleanNotes.replace(/\[folderId:[^\]]+\]\s*/, '').trim();
+      }
+
+      return {
+        id: d.id,
+        name: d.name,
+        fileType: d.file_type || 'pdf',
+        fileSize: d.file_size || 0,
+        url: d.url || '',
+        content: d.content || undefined,
+        hasFile: d.has_file !== false,
+        status: d.status || 'pending',
+        notes: cleanNotes,
+        collectionId: d.collection_id || 'default',
+        folderId,
+        clientId: d.client_id || undefined,
+        createdAt: d.created_at || new Date().toISOString(),
+        updatedAt: d.updated_at || new Date().toISOString()
+      };
+    });
   } catch (err) {
     console.warn('Failed to fetch user documents from Supabase:', err);
     return null;
@@ -348,10 +393,7 @@ export const migrateLocalDocumentsToCloud = async (
   for (const doc of docs) {
     const docCopy: DocumentItem = { ...doc };
 
-    // Ensure valid UUID
-    if (!isUUID(docCopy.id)) {
-      docCopy.id = generateUUID();
-    }
+    // Preserve the original doc.id so local state and cloud state match perfectly
 
     // If doc has local base64, upload it to cloud storage
     if (docCopy.url && docCopy.url.startsWith('data:')) {
@@ -373,9 +415,6 @@ export const migrateLocalDocumentsToCloud = async (
       const newPages = [];
       for (const page of docCopy.pages) {
         const pCopy = { ...page };
-        if (!isUUID(pCopy.id)) {
-          pCopy.id = generateUUID();
-        }
         if (pCopy.url && pCopy.url.startsWith('data:')) {
           const pFile = dataUrlToFile(pCopy.url, pCopy.name || `${docCopy.name}_page`);
           if (pFile) {

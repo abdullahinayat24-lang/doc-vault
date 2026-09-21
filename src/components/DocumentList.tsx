@@ -29,7 +29,8 @@ import {
   Palette,
   GripVertical,
   CornerDownRight,
-  Cloud
+  Cloud,
+  Loader2
 } from 'lucide-react';
 import { DocumentItem, FileType, DocumentStatus, DocumentFolder, FolderColor } from '../types';
 
@@ -136,6 +137,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   const [newFolderColor, setNewFolderColor] = useState<FolderColor>('blue');
   const [colorPickerFolderId, setColorPickerFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [dismissSyncBanner, setDismissSyncBanner] = useState(false);
+  const [isSyncingLocal, setIsSyncingLocal] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const [showCreateSlotModal, setShowCreateSlotModal] = useState(false);
@@ -1066,21 +1069,46 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         </div>
 
         {/* Local Documents Cloud Sync Banner */}
-        {onSyncLocalDocs && documents.some(d => d.url && d.url.startsWith('data:')) && (
+        {!dismissSyncBanner && onSyncLocalDocs && documents.some(d => d.url && d.url.startsWith('data:')) && (
           <div className="bg-[#fef7e0] border border-[#f9ab00]/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs animate-in fade-in">
             <div className="flex items-center gap-1.5 text-[#b06000]">
               <Cloud className="w-4 h-4 text-[#e37400] flex-shrink-0" />
               <span>
-                <strong>{documents.filter(d => d.url && d.url.startsWith('data:')).length}</strong> existing local document(s) detected.
+                <strong>{documents.filter(d => d.url && d.url.startsWith('data:')).length}</strong> document(s) in local vault.
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onSyncLocalDocs}
-              className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-lg text-[11px] shadow-xs flex-shrink-0 transition-colors"
-            >
-              Sync to Cloud
-            </button>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                disabled={isSyncingLocal}
+                onClick={async () => {
+                  try {
+                    setIsSyncingLocal(true);
+                    await onSyncLocalDocs();
+                  } finally {
+                    setIsSyncingLocal(false);
+                  }
+                }}
+                className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-lg text-[11px] shadow-xs transition-colors flex items-center gap-1 disabled:opacity-50"
+              >
+                {isSyncingLocal ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Syncing...</span>
+                  </>
+                ) : (
+                  <span>Sync to Cloud</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDismissSyncBanner(true)}
+                className="p-1 text-[#5f6368] hover:text-[#202124] rounded-md transition-colors"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
 
