@@ -34,9 +34,11 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'card' | 'batch'>('card');
 
-  // Tab 1: 2-Sided / Multi-Page ID Card state
-  const [cardTitle, setCardTitle] = useState('IRP Card');
+  // Tab 1: Multi-Side / 2-Sided Document state
+  const [cardTitle, setCardTitle] = useState('2-Sided Document');
   const [cardStatus, setCardStatus] = useState<DocumentStatus>('pending');
+  const [side1Label, setSide1Label] = useState('Side 1: Front');
+  const [side2Label, setSide2Label] = useState('Side 2: Back');
   const [frontFile, setFrontFile] = useState<{ file: File; url: string; fileType: FileType } | null>(null);
   const [backFile, setBackFile] = useState<{ file: File; url: string; fileType: FileType } | null>(null);
   const [extraPages, setExtraPages] = useState<{ id: string; name: string; file: File; url: string; fileType: FileType }[]>([]);
@@ -54,12 +56,12 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
   if (!isOpen) return null;
 
   const presets = [
-    'IRP Card',
-    'Biometric Residence Permit (BRP)',
-    'Driving License',
-    'National ID Card',
-    'Passport & Visa',
-    'Tenancy Agreement'
+    '2-Sided ID / IRP Card',
+    'Driving License (Front & Back)',
+    'Contract / Agreement',
+    'Passport & Visa Page',
+    'Deed / Title Certificate',
+    'Bank Statement (Front/Back)'
   ];
 
   const readFileToDataUrl = (file: File): Promise<string> => {
@@ -118,7 +120,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
 
     if (frontFile) {
       pages.push({
-        name: 'Front Side',
+        name: side1Label.trim() || 'Side 1: Front',
         file: frontFile.file,
         url: frontFile.url,
         fileType: frontFile.fileType,
@@ -128,7 +130,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
 
     if (backFile) {
       pages.push({
-        name: 'Back Side',
+        name: side2Label.trim() || 'Side 2: Back',
         file: backFile.file,
         url: backFile.url,
         fileType: backFile.fileType,
@@ -208,7 +210,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            <span>2-Sided ID / Card (Front & Back)</span>
+            <span>Multi-Side / 2-Sided Document (Front & Back)</span>
           </button>
           <button
             type="button"

@@ -226,8 +226,47 @@ export const exportAsPdf = async (doc: DocumentItem) => {
 };
 
 export const exportAsJpg = async (doc: DocumentItem) => {
-  if (!doc.hasFile || !doc.url) return;
+  if (!doc.hasFile) return;
 
+  // If multi-side/page document (e.g. Front & Back), package all photos into a folder inside ZIP!
+  if (doc.pages && doc.pages.length > 1) {
+    const zip = new JSZip();
+    const cleanDocName = doc.name.replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+    const folder = zip.folder(cleanDocName) || zip;
+
+    for (let i = 0; i < doc.pages.length; i++) {
+      const page = doc.pages[i];
+      try {
+        const img = await loadImage(page.url);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+          if (blob) {
+            const cleanPageName = (page.name || `Side_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+            folder.file(`${cleanPageName}.jpg`, blob);
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not convert page ${i} to JPG:`, err);
+        try {
+          const blob = await urlToBlob(page.url);
+          folder.file(`${page.name || `Side_${i + 1}`}.jpg`, blob);
+        } catch {}
+      }
+    }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    saveAs(zipBlob, `${cleanDocName}_Photos.zip`);
+    return;
+  }
+
+  // Single page
   try {
     const img = await loadImage(doc.url);
     const canvas = document.createElement('canvas');
@@ -252,22 +291,40 @@ export const exportAsJpg = async (doc: DocumentItem) => {
 };
 
 export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName: string = 'DocVault_Export.zip') => {
-  const availableDocs = docs.filter(d => d.hasFile && d.url);
+  const availableDocs = docs.filter(d => d.hasFile && (d.url || (d.pages && d.pages.length > 0)));
   if (availableDocs.length === 0) {
     alert('No uploaded files found in the selection to export.');
     return;
   }
-  if (availableDocs.length === 1) {
+  if (availableDocs.length === 1 && (!availableDocs[0].pages || availableDocs[0].pages.length <= 1)) {
     return exportSingleDocument(availableDocs[0]);
   }
 
   const zip = new JSZip();
-  const folder = zip.folder('documents');
+  const rootFolderName = zipFileName.replace(/\.zip$/i, '') || 'Case_Documents';
+  const folder = zip.folder(rootFolderName) || zip;
 
   for (const doc of availableDocs) {
     try {
-      const blob = await urlToBlob(doc.url);
-      folder?.file(doc.name, blob);
+      if (doc.pages && doc.pages.length > 1) {
+        // Multi-side document: Create a dedicated subfolder with the saved document name!
+        const cleanDocFolderName = doc.name.replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+        const docSubFolder = folder.folder(cleanDocFolderName);
+
+        for (let i = 0; i < doc.pages.length; i++) {
+          const page = doc.pages[i];
+          const pageBlob = await urlToBlob(page.url);
+          const cleanPageName = (page.name || `Page_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+          const ext = page.fileType || 'jpg';
+          const filename = cleanPageName.endsWith(`.${ext}`) ? cleanPageName : `${cleanPageName}.${ext}`;
+          docSubFolder?.file(filename, pageBlob);
+        }
+      } else {
+        // Single file document
+        const blob = await urlToBlob(doc.url);
+        const cleanName = doc.name.replace(/[\\/:*?"<>|]/g, '_');
+        folder.file(cleanName, blob);
+      }
     } catch (err) {
       console.warn(`Could not add ${doc.name} to zip:`, err);
     }
