@@ -98,3 +98,13 @@ export interface ViewerState {
 
 export type SortField = 'date' | 'name' | 'priority' | 'fee';
 export type SortDirection = 'asc' | 'desc';
+
+export interface InviteKeyRecord {
+  id: string;
+  key: string;
+  createdAt: string;
+  isUsed: boolean;
+  usedByEmail?: string;
+  usedAt?: string;
+  label?: string;
+}

@@ -506,9 +506,9 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
         </div>
       ) : (
         /* DOCUMENT VIEWER MODE */
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left document list */}
-          <aside className="w-80 bg-white border-r border-[#dadce0] flex flex-col h-[calc(100vh-4rem)] overflow-y-auto divide-y divide-[#f1f3f4]">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
+          {/* Left document list: hidden on mobile phones when inspecting a document */}
+          <aside className="hidden md:flex w-80 bg-white border-r border-[#dadce0] flex-col h-full overflow-y-auto divide-y divide-[#f1f3f4] flex-shrink-0">
             <div className="p-3 bg-[#f8fafd] border-b border-[#dadce0] text-xs font-semibold text-[#5f6368] uppercase tracking-wider flex items-center justify-between">
               <span>Client Documents ({allowedDocuments.length})</span>
             </div>
@@ -577,15 +577,31 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
           </aside>
 
           {/* Master Viewer Canvas */}
-          <DocumentViewer
-            document={activeDoc}
-            onExport={(doc) => exportSingleDocument(doc)}
-            onExportAsPdf={(doc) => exportAsPdf(doc)}
-            onExportAsJpg={(doc) => exportAsJpg(doc)}
-            onShare={() => {}}
-            onUpdateStatus={onUpdateStatus}
-            isReadOnly={true}
-          />
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Mobile Top Bar to return to checklist */}
+            <div className="md:hidden bg-white border-b border-[#dadce0] px-3 py-2 flex items-center justify-between z-30 shadow-xs flex-shrink-0">
+              <button
+                onClick={() => setActiveViewMode('upload_portal')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e8f0fe] hover:bg-[#d2e3fc] text-[#1a73e8] rounded-xl text-xs font-bold transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Checklist</span>
+              </button>
+              <span className="text-xs font-semibold text-[#5f6368] truncate max-w-[170px]">
+                {activeDoc?.name || 'Document'}
+              </span>
+            </div>
+
+            <DocumentViewer
+              document={activeDoc}
+              onExport={(doc) => exportSingleDocument(doc)}
+              onExportAsPdf={(doc) => exportAsPdf(doc)}
+              onExportAsJpg={(doc) => exportAsJpg(doc)}
+              onShare={() => {}}
+              onUpdateStatus={onUpdateStatus}
+              isReadOnly={true}
+            />
+          </div>
         </div>
       )}
     </div>

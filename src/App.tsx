@@ -36,6 +36,7 @@ import { SharedViewer } from './components/SharedViewer';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
 import { AuthScreen } from './components/AuthScreen';
+import { ArrowLeft } from 'lucide-react';
 
 export function App() {
   // Check if viewing a shared link (?share=...)
@@ -54,6 +55,9 @@ export function App() {
   
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
+
+  // Mobile navigation pane: toggle between 'list' and 'viewer' on phones
+  const [mobilePane, setMobilePane] = useState<'list' | 'viewer'>('list');
 
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -173,6 +177,7 @@ export function App() {
   // Handle client selection (opens Level 2 document workspace)
   const handleSelectClient = (client: ClientRecord) => {
     setSelectedClientId(client.id);
+    setMobilePane('list');
     const clientFirstTab = tabs.find((t) => t.clientId === client.id);
     if (clientFirstTab) {
       setActiveTabId(clientFirstTab.id);
@@ -436,7 +441,10 @@ export function App() {
       <Header
         user={user}
         selectedClient={selectedClient}
-        onBackToClients={() => setSelectedClientId(null)}
+        onBackToClients={() => {
+          setSelectedClientId(null);
+          setMobilePane('list');
+        }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onLockSession={() => setIsLocked(true)}
@@ -494,42 +502,63 @@ export function App() {
           />
 
           {/* Document Workspace */}
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
             {/* Left Documents List */}
-            <DocumentList
-              documents={tabDocuments}
-              activeDocumentId={activeDocId}
-              onSelectDocument={(doc) => setActiveDocId(doc.id)}
-              selectedDocIds={selectedDocIds}
-              onToggleSelectDoc={handleToggleSelectDoc}
-              onToggleSelectAll={handleToggleSelectAll}
-              onUploadFiles={handleUploadFiles}
-              onUploadToFileSlot={handleUploadToFileSlot}
-              onCreateDocumentSlot={handleCreateDocumentSlot}
-              onUpdateDocumentStatus={handleUpdateDocumentStatus}
-              onDeleteDocument={handleDeleteDocument}
-              onShareDocument={(doc, e) => {
-                e.stopPropagation();
-                setActiveDocId(doc.id);
-                setIsShareOpen(true);
-              }}
-              onExportDocument={(doc, e) => {
-                e.stopPropagation();
-                exportSingleDocument(doc);
-              }}
-              tabTitle={activeTab.name}
-            />
+            <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden`}>
+              <DocumentList
+                documents={tabDocuments}
+                activeDocumentId={activeDocId}
+                onSelectDocument={(doc) => {
+                  setActiveDocId(doc.id);
+                  setMobilePane('viewer');
+                }}
+                selectedDocIds={selectedDocIds}
+                onToggleSelectDoc={handleToggleSelectDoc}
+                onToggleSelectAll={handleToggleSelectAll}
+                onUploadFiles={handleUploadFiles}
+                onUploadToFileSlot={handleUploadToFileSlot}
+                onCreateDocumentSlot={handleCreateDocumentSlot}
+                onUpdateDocumentStatus={handleUpdateDocumentStatus}
+                onDeleteDocument={handleDeleteDocument}
+                onShareDocument={(doc, e) => {
+                  e.stopPropagation();
+                  setActiveDocId(doc.id);
+                  setIsShareOpen(true);
+                }}
+                onExportDocument={(doc, e) => {
+                  e.stopPropagation();
+                  exportSingleDocument(doc);
+                }}
+                tabTitle={activeTab.name}
+              />
+            </div>
 
             {/* Master Document Viewer */}
-            <DocumentViewer
-              document={activeDoc}
-              onExport={exportSingleDocument}
-              onExportAsPdf={exportAsPdf}
-              onExportAsJpg={exportAsJpg}
-              onShare={() => setIsShareOpen(true)}
-              onUpdateStatus={handleUpdateDocumentStatus}
-              isReadOnly={false}
-            />
+            <div className={`${mobilePane === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-[#f8fafd] h-full overflow-hidden min-h-0`}>
+              {/* Mobile Back Button to return to Document List */}
+              <div className="md:hidden bg-white border-b border-[#dadce0] px-3 py-2 flex items-center justify-between z-30 shadow-xs flex-shrink-0">
+                <button
+                  onClick={() => setMobilePane('list')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e8f0fe] hover:bg-[#d2e3fc] text-[#1a73e8] rounded-xl text-xs font-bold transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Back to Case Files</span>
+                </button>
+                <span className="text-xs font-semibold text-[#5f6368] truncate max-w-[170px]">
+                  {activeDoc?.name || 'Document'}
+                </span>
+              </div>
+
+              <DocumentViewer
+                document={activeDoc}
+                onExport={exportSingleDocument}
+                onExportAsPdf={exportAsPdf}
+                onExportAsJpg={exportAsJpg}
+                onShare={() => setIsShareOpen(true)}
+                onUpdateStatus={handleUpdateDocumentStatus}
+                isReadOnly={false}
+              />
+            </div>
           </div>
         </>
       )}

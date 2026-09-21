@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { SolicitorProfile } from '../types';
 import { supabase, isSupabaseConfigured, updateSupabaseCredentials } from '../lib/supabase';
+import { validateAndConsumeInviteKey } from '../lib/storage';
 
 interface AuthScreenProps {
   onAuthenticated: (profile: SolicitorProfile) => void;
@@ -48,16 +49,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     setLoading(true);
     setError(null);
 
-    // Firm Registration Key enforcement for sign up (prevents public spam accounts)
+    // Firm Registration Key enforcement for sign up (supports Master Key & One-Time Keys)
     if (mode === 'signup') {
-      const allowedKey = (
-        (import.meta as any).env?.VITE_REGISTRATION_KEY || 
-        localStorage.getItem('docvault_registration_key') || 
-        'LEGAL-VAULT-2026'
-      ).trim();
-
-      if (!registrationKey.trim() || registrationKey.trim() !== allowedKey) {
-        setError('Invalid Firm Registration Key. Registration is restricted to authorized personnel with a valid invitation key.');
+      const check = validateAndConsumeInviteKey(registrationKey, email.trim());
+      if (!check.valid) {
+        setError(check.reason || 'Invalid Firm Registration Key. Registration is restricted.');
         setLoading(false);
         return;
       }

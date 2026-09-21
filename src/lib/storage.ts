@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
-import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord } from '../types';
+import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const CLIENTS_KEY = 'docvault_clients';
@@ -244,4 +244,103 @@ export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName:
 
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   saveAs(zipBlob, zipFileName);
+};
+
+// ============================================================================
+// SINGLE-USE INVITATION KEYS SYSTEM (Prevents Sharing & Spam Accounts)
+// ============================================================================
+const INVITE_KEYS_KEY = 'docvault_invite_keys';
+
+export const getInviteKeys = (): InviteKeyRecord[] => {
+  const saved = localStorage.getItem(INVITE_KEYS_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+  }
+  return [];
+};
+
+export const saveInviteKeys = (keys: InviteKeyRecord[]) => {
+  localStorage.setItem(INVITE_KEYS_KEY, JSON.stringify(keys));
+};
+
+export const generateRandomInviteKey = (label?: string): InviteKeyRecord => {
+  // Generate random, readable key: e.g. DV-8K2M-9P4Q-3X8L
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const segment = (len: number) => {
+    let s = '';
+    for (let i = 0; i < len; i++) {
+      s += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return s;
+  };
+  const key = `DV-${segment(4)}-${segment(4)}-${segment(4)}`;
+  const record: InviteKeyRecord = {
+    id: 'key_' + Math.random().toString(36).substring(2, 9),
+    key,
+    createdAt: new Date().toISOString(),
+    isUsed: false,
+    label: label?.trim() || undefined
+  };
+
+  const keys = getInviteKeys();
+  keys.unshift(record);
+  saveInviteKeys(keys);
+  return record;
+};
+
+export const deleteInviteKey = (id: string) => {
+  const keys = getInviteKeys().filter((k) => k.id !== id);
+  saveInviteKeys(keys);
+};
+
+export const validateAndConsumeInviteKey = (
+  inputKey: string,
+  userEmail: string
+): { valid: boolean; reason?: string } => {
+  const cleanInput = inputKey.trim().toUpperCase();
+
+  // 1. Check Master Admin Key (for firm owner)
+  const masterKey = (
+    (import.meta as any).env?.VITE_REGISTRATION_KEY ||
+    localStorage.getItem('docvault_registration_key') ||
+    'LEGAL-VAULT-2026'
+  ).trim().toUpperCase();
+
+  if (cleanInput === masterKey) {
+    return { valid: true };
+  }
+
+  // 2. Check generated one-time invite keys
+  const keys = getInviteKeys();
+  const matchedIndex = keys.findIndex((k) => k.key.toUpperCase() === cleanInput);
+
+  if (matchedIndex === -1) {
+    return {
+      valid: false,
+      reason: 'Invalid Registration Key. Please verify the code with your firm administrator.'
+    };
+  }
+
+  const record = keys[matchedIndex];
+  if (record.isUsed) {
+    return {
+      valid: false,
+      reason: `This one-time key was already used by ${record.usedByEmail || 'another user'} on ${new Date(
+        record.usedAt || ''
+      ).toLocaleDateString()}. It cannot be shared or reused.`
+    };
+  }
+
+  // Single-use: Consume the key so it cannot ever be reused or shared!
+  record.isUsed = true;
+  record.usedByEmail = userEmail;
+  record.usedAt = new Date().toISOString();
+  keys[matchedIndex] = record;
+  saveInviteKeys(keys);
+
+  return { valid: true };
 };
