@@ -863,15 +863,34 @@ export function App() {
   const handleMoveDocPosition = (docId: string, direction: 'up' | 'down') => {
     setSortOption('manual');
     setDocuments((prev) => {
-      const idx = prev.findIndex((d) => d.id === docId);
-      if (idx < 0) return prev;
-      if (direction === 'up' && idx === 0) return prev;
-      if (direction === 'down' && idx === prev.length - 1) return prev;
+      const doc = prev.find((d) => d.id === docId);
+      if (!doc) return prev;
 
-      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      // Find all sibling documents in the exact same scope (same tab and same folder)
+      const targetCollectionId = doc.collectionId || doc.tabId;
+      const siblings = prev.filter((d) => {
+        const dColl = d.collectionId || d.tabId;
+        return dColl === targetCollectionId && (d.folderId || undefined) === (doc.folderId || undefined);
+      });
+
+      const siblingIdx = siblings.findIndex((d) => d.id === docId);
+      if (siblingIdx < 0) return prev;
+      if (direction === 'up' && siblingIdx === 0) return prev;
+      if (direction === 'down' && siblingIdx === siblings.length - 1) return prev;
+
+      const targetSibling = siblings[direction === 'up' ? siblingIdx - 1 : siblingIdx + 1];
+      if (!targetSibling) return prev;
+
       const copy = [...prev];
-      const [moved] = copy.splice(idx, 1);
-      copy.splice(targetIdx, 0, moved);
+      const idxA = copy.findIndex((d) => d.id === doc.id);
+      const idxB = copy.findIndex((d) => d.id === targetSibling.id);
+      if (idxA < 0 || idxB < 0) return prev;
+
+      // Swap positions in the master array
+      const temp = copy[idxA];
+      copy[idxA] = copy[idxB];
+      copy[idxB] = temp;
+
       saveDocuments(copy, user?.id);
       return copy;
     });
