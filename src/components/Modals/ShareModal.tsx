@@ -48,10 +48,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   );
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleCreateShare = () => {
+  const handleCreateShare = async () => {
+    setIsGenerating(true);
     const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
     let targetIds: string[] = [];
     let title = '';
@@ -89,7 +91,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     onSaveShare(newRecord);
 
     // Prepare lightweight payload documents so the client portal works on any device/browser
-    // Exclude massive base64 binaries to keep the link short, clean, and compliant with all browsers & messaging apps
     const payloadDocs = targetDocs.map((d) => ({
       id: d.id,
       name: d.name,
@@ -104,34 +105,44 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       url: (d.url && (d.url.startsWith('http://') || d.url.startsWith('https://')) && d.url.length < 500) ? d.url : ''
     }));
 
-    const baseUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
-    let shareUrl = baseUrl;
+    const payload = { share: newRecord, docs: payloadDocs };
+    const baseUrl = `${window.location.origin}${window.location.pathname}`;
 
+    // 1. Post to high-reliability cloud share store so ANY device / phone can load it instantly
     try {
-      const payload = { share: newRecord, docs: payloadDocs };
-      const jsonStr = JSON.stringify(payload);
-      if (jsonStr.length < 2000) {
-        const encodedData = btoa(encodeURIComponent(jsonStr));
-        shareUrl = `${baseUrl}#data=${encodedData}`;
+      const res = await fetch('https://bytebin.lucko.me/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.key) {
+          const cloudShareId = data.key;
+          const cloudRecord = { ...newRecord, id: cloudShareId };
+          onSaveShare(cloudRecord);
+          const shortCleanUrl = `${baseUrl}?share=${cloudShareId}`;
+          setGeneratedLink(shortCleanUrl);
+          setIsGenerating(false);
+          return;
+        }
       }
-    } catch (e) {
-      console.warn('Payload encoding fallback:', e);
+    } catch (err) {
+      console.warn('Cloud share store sync note:', err);
     }
 
-    // Set immediate link
-    setGeneratedLink(shareUrl);
+    // 2. Fallback: encode compact hash payload into URL if cloud sync is unavailable
+    let fallbackUrl = `${baseUrl}?share=${shareId}`;
+    try {
+      const jsonStr = JSON.stringify(payload);
+      const encodedData = btoa(encodeURIComponent(jsonStr));
+      fallbackUrl = `${baseUrl}?share=${shareId}#data=${encodedData}`;
+    } catch (e) {
+      console.warn('Fallback encoding error:', e);
+    }
 
-    // Automatically shorten to a compact, clean URL (e.g. https://tinyurl.com/xyz)
-    fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(shareUrl)}`)
-      .then((res) => res.text())
-      .then((shortUrl) => {
-        if (shortUrl && shortUrl.startsWith('http') && !shortUrl.includes('Error')) {
-          setGeneratedLink(shortUrl.trim());
-        }
-      })
-      .catch(() => {
-        // Keeps shareUrl fallback if offline
-      });
+    setGeneratedLink(fallbackUrl);
+    setIsGenerating(false);
   };
 
   const handleCopy = () => {
@@ -390,10 +401,13 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               <button
                 type="button"
                 onClick={handleCreateShare}
-                disabled={!passcode.trim()}
-                className="px-5 py-2 text-xs sm:text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] disabled:opacity-50 text-white rounded-xl transition-colors shadow-sm"
+                disabled={!passcode.trim() || isGenerating}
+                className="px-5 py-2 text-xs sm:text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] disabled:opacity-50 text-white rounded-xl transition-colors shadow-sm flex items-center gap-2"
               >
-                Generate {shareType === 'uploader' ? 'Uploader' : 'Viewer'} Link
+                {isGenerating && (
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                <span>{isGenerating ? 'Generating Link...' : `Generate ${shareType === 'uploader' ? 'Uploader' : 'Viewer'} Link`}</span>
               </button>
             </>
           ) : (

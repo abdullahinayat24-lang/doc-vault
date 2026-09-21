@@ -76,6 +76,41 @@ export function App() {
     return null;
   });
 
+  // Cloud share state for cross-device links without local storage
+  const [cloudShareData, setCloudShareData] = useState<{ share: ShareRecord; docs: DocumentItem[] } | null>(null);
+  const [isLoadingCloudShare, setIsLoadingCloudShare] = useState<boolean>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const p = params.get('share');
+    if (!p) return false;
+    const local = getShares().find((s) => s.id === p);
+    return !local && !window.location.hash.startsWith('#data=');
+  });
+
+  useEffect(() => {
+    if (!shareParam) return;
+    if (sharedPayload) return;
+    const local = getShares().find((s) => s.id === shareParam);
+    if (local) return;
+
+    fetch(`https://bytebin.lucko.me/${shareParam}`)
+      .then((res) => {
+        if (!res.ok) throw new Error('Not found in cloud store');
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.share) {
+          setCloudShareData(data);
+          saveShare(data.share);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch cloud share record:', err);
+      })
+      .finally(() => {
+        setIsLoadingCloudShare(false);
+      });
+  }, [shareParam, sharedPayload]);
+
   // Main state - null profile by default prompts Create Account / Sign In
   const [user, setUser] = useState<SolicitorProfile | null>(() => getSolicitorProfile());
   const [clients, setClients] = useState<ClientRecord[]>(() => getClients());
@@ -715,9 +750,23 @@ export function App() {
 
   // If viewing a shared link (?share=...)
   if (shareParam) {
-    // Prefer embedded URL payload (works cross-device), fall back to localStorage
-    const shareRecord = sharedPayload?.share || (getShares().find((s) => s.id === shareParam) ?? null);
-    const sharedDocs = sharedPayload?.docs ?? documents;
+    if (isLoadingCloudShare) {
+      return (
+        <div className="min-h-screen bg-[#f8fafd] flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-150">
+          <div className="w-12 h-12 border-4 border-[#1a73e8] border-t-transparent rounded-full animate-spin mb-4" />
+          <h2 className="font-['Google_Sans',sans-serif] text-base font-bold text-[#202124]">
+            Connecting to Secured Client Portal...
+          </h2>
+          <p className="text-xs text-[#5f6368] mt-1">
+            Loading required case documents from solicitor vault.
+          </p>
+        </div>
+      );
+    }
+
+    // Prefer embedded URL payload (works cross-device), then cloud store, then localStorage
+    const shareRecord = sharedPayload?.share || cloudShareData?.share || (getShares().find((s) => s.id === shareParam) ?? null);
+    const sharedDocs = sharedPayload?.docs || cloudShareData?.docs || documents;
 
     return (
       <SharedViewer
