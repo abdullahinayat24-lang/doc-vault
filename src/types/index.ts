@@ -36,6 +36,18 @@ export interface CollectionTab {
   updatedAt?: string;
 }
 
+export type FolderColor = 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'teal' | 'slate' | 'default';
+
+export interface DocumentFolder {
+  id: string;
+  collectionId: string; // Linked collection tab
+  parentId?: string; // Optional parent folder ID for nested subfolders
+  name: string; // e.g. "Bills", "Electricity Bills"
+  color?: FolderColor;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface DocumentPage {
   id: string;
   name: string; // e.g. "Front Side", "Back Side", "Page 1", "Page 2"
@@ -48,6 +60,7 @@ export interface DocumentItem {
   id: string;
   clientId?: string;
   collectionId: string;
+  folderId?: string; // Linked folder or subfolder ID (undefined if root level)
   name: string;
   fileType: FileType;
   fileSize: number; // in bytes

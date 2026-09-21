@@ -1,12 +1,13 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
-import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord } from '../types';
+import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const CLIENTS_KEY = 'docvault_clients';
 const TABS_KEY = 'docvault_collection_tabs';
 const DOCS_KEY = 'docvault_documents';
+const FOLDERS_KEY = 'docvault_document_folders';
 const SHARES_KEY = 'docvault_shares';
 const PROFILE_KEY = 'docvault_solicitor_profile';
 const PIN_KEY = 'docvault_lock_pin';
@@ -41,6 +42,22 @@ export const getInitialTabs = (): CollectionTab[] => {
 
 export const saveTabs = (tabs: CollectionTab[]) => {
   localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+};
+
+export const getInitialFolders = (): DocumentFolder[] => {
+  const saved = localStorage.getItem(FOLDERS_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+  }
+  return []; // Empty by default
+};
+
+export const saveFolders = (folders: DocumentFolder[]) => {
+  localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
 };
 
 export const getInitialDocuments = (): DocumentItem[] => {
@@ -290,26 +307,56 @@ export const exportAsJpg = async (doc: DocumentItem) => {
   }
 };
 
-export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName: string = 'DocVault_Export.zip') => {
+export const exportMultipleDocuments = async (
+  docs: DocumentItem[], 
+  zipFileName: string = 'DocVault_Export.zip',
+  folders: DocumentFolder[] = []
+) => {
   const availableDocs = docs.filter(d => d.hasFile && (d.url || (d.pages && d.pages.length > 0)));
   if (availableDocs.length === 0) {
     alert('No uploaded files found in the selection to export.');
     return;
   }
-  if (availableDocs.length === 1 && (!availableDocs[0].pages || availableDocs[0].pages.length <= 1)) {
+  if (availableDocs.length === 1 && (!availableDocs[0].pages || availableDocs[0].pages.length <= 1) && !availableDocs[0].folderId) {
     return exportSingleDocument(availableDocs[0]);
   }
 
   const zip = new JSZip();
   const rootFolderName = zipFileName.replace(/\.zip$/i, '') || 'Case_Documents';
-  const folder = zip.folder(rootFolderName) || zip;
+  const rootZipFolder = zip.folder(rootFolderName) || zip;
+
+  // Helper to resolve folder path chain
+  const getFolderPath = (folderId?: string): string[] => {
+    if (!folderId) return [];
+    const path: string[] = [];
+    let currentId: string | undefined = folderId;
+    while (currentId) {
+      const f = folders.find(item => item.id === currentId);
+      if (!f) break;
+      const cleanName = f.name.replace(/[\\/:*?"<>|]/g, '_');
+      path.unshift(cleanName);
+      currentId = f.parentId;
+    }
+    return path;
+  };
+
+  // Helper to obtain or create nested zip folder
+  const resolveZipFolder = (folderId?: string) => {
+    const pathSegments = getFolderPath(folderId);
+    let target = rootZipFolder;
+    for (const segment of pathSegments) {
+      target = target.folder(segment) || target;
+    }
+    return target;
+  };
 
   for (const doc of availableDocs) {
     try {
+      const targetFolder = resolveZipFolder(doc.folderId);
       if (doc.pages && doc.pages.length > 1) {
         // Multi-side document: Create a dedicated subfolder with the saved document name!
         const cleanDocFolderName = doc.name.replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
-        const docSubFolder = folder.folder(cleanDocFolderName);
+        const docSubFolder = targetFolder.folder(cleanDocFolderName);
 
         for (let i = 0; i < doc.pages.length; i++) {
           const page = doc.pages[i];
@@ -323,7 +370,7 @@ export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName:
         // Single file document
         const blob = await urlToBlob(doc.url);
         const cleanName = doc.name.replace(/[\\/:*?"<>|]/g, '_');
-        folder.file(cleanName, blob);
+        targetFolder.file(cleanName, blob);
       }
     } catch (err) {
       console.warn(`Could not add ${doc.name} to zip:`, err);

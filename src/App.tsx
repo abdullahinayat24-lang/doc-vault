@@ -6,7 +6,9 @@ import {
   SolicitorProfile, 
   FileType, 
   DocumentStatus,
-  ClientRecord 
+  ClientRecord,
+  DocumentFolder,
+  FolderColor 
 } from './types';
 import { 
   getClients,
@@ -15,6 +17,8 @@ import {
   saveTabs, 
   getInitialDocuments, 
   saveDocuments, 
+  getInitialFolders,
+  saveFolders,
   getSolicitorProfile, 
   saveSolicitorProfile, 
   getShares, 
@@ -54,6 +58,7 @@ export function App() {
 
   const [tabs, setTabs] = useState<CollectionTab[]>(() => getInitialTabs());
   const [documents, setDocuments] = useState<DocumentItem[]>(() => getInitialDocuments());
+  const [folders, setFolders] = useState<DocumentFolder[]>(() => getInitialFolders());
   
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
@@ -85,6 +90,10 @@ export function App() {
   useEffect(() => {
     saveDocuments(documents);
   }, [documents]);
+
+  useEffect(() => {
+    saveFolders(folders);
+  }, [folders]);
 
   useEffect(() => {
     saveSolicitorProfile(user);
@@ -133,6 +142,11 @@ export function App() {
       createdAt: new Date().toISOString()
     };
   }, [sortedTabs, activeTabId, selectedClientId]);
+
+  // Folders under the active tab
+  const tabFolders = useMemo(() => {
+    return folders.filter((f) => f.collectionId === activeTab.id);
+  }, [folders, activeTab.id]);
 
   // Documents under the active tab
   const tabDocuments = useMemo(() => {
@@ -496,6 +510,96 @@ export function App() {
     }
   };
 
+  // Folder operations
+  const handleCreateFolder = (name: string, parentId?: string, color: FolderColor = 'blue') => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const newFolder: DocumentFolder = {
+      id: 'folder_' + Math.random().toString(36).substring(2, 9),
+      collectionId: activeTab.id,
+      parentId: parentId || undefined,
+      name: trimmed,
+      color,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setFolders((prev) => [...prev, newFolder]);
+    return newFolder;
+  };
+
+  const handleRenameFolder = (folderId: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderId ? { ...f, name: trimmed, updatedAt: new Date().toISOString() } : f))
+    );
+  };
+
+  const handleUpdateFolderColor = (folderId: string, color: FolderColor) => {
+    setFolders((prev) =>
+      prev.map((f) => (f.id === folderId ? { ...f, color, updatedAt: new Date().toISOString() } : f))
+    );
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    if (confirm('Delete this folder? Documents inside will be kept and moved to the main tab.')) {
+      const getDescendantFolderIds = (id: string): string[] => {
+        const directChildren = folders.filter((f) => f.parentId === id);
+        let allIds = [id];
+        for (const child of directChildren) {
+          allIds = allIds.concat(getDescendantFolderIds(child.id));
+        }
+        return allIds;
+      };
+      const folderIdsToRemove = getDescendantFolderIds(folderId);
+
+      setFolders((prev) => prev.filter((f) => !folderIdsToRemove.includes(f.id)));
+      setDocuments((prev) =>
+        prev.map((d) => (d.folderId && folderIdsToRemove.includes(d.folderId) ? { ...d, folderId: undefined, updatedAt: new Date().toISOString() } : d))
+      );
+    }
+  };
+
+  const handleMoveDocToFolder = (docId: string, targetFolderId?: string) => {
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === docId ? { ...d, folderId: targetFolderId, updatedAt: new Date().toISOString() } : d))
+    );
+  };
+
+  const handleUploadFilesToFolder = async (files: FileList | File[], folderId?: string) => {
+    const fileArray = Array.from(files);
+    const newItems: DocumentItem[] = [];
+
+    for (const file of fileArray) {
+      const fileType = detectFileType(file.name, file.type);
+      const url = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+
+      newItems.push({
+        id: 'doc_' + Math.random().toString(36).substring(2, 9),
+        clientId: selectedClientId || undefined,
+        collectionId: activeTab.id,
+        folderId: folderId || undefined,
+        name: file.name,
+        fileType,
+        fileSize: file.size,
+        url,
+        hasFile: true,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    setDocuments((prev) => [...newItems, ...prev]);
+    if (newItems.length > 0) {
+      setActiveDocId(newItems[0].id);
+    }
+  };
+
   const handleToggleSelectAll = () => {
     if (selectedDocIds.length === tabDocuments.length) {
       setSelectedDocIds([]);
@@ -589,11 +693,11 @@ export function App() {
         }}
         selectedCount={selectedDocIds.length}
         activeDocument={activeDoc}
-        onExportSelected={() => exportMultipleDocuments(selectedDocuments, `${activeTab.name}_Selected.zip`)}
+        onExportSelected={() => exportMultipleDocuments(selectedDocuments, `${activeTab.name}_Selected.zip`, folders)}
         onExportCurrent={() => activeDoc && exportSingleDocument(activeDoc)}
         onExportCurrentAsPdf={() => activeDoc && exportAsPdf(activeDoc)}
         onExportCurrentAsJpg={() => activeDoc && exportAsJpg(activeDoc)}
-        onExportAll={() => exportMultipleDocuments(tabDocuments, `${activeTab.name}_Complete.zip`)}
+        onExportAll={() => exportMultipleDocuments(tabDocuments, `${activeTab.name}_Complete.zip`, folders)}
       />
 
       {/* LEVEL 1: Main Company Page & Clients Directory */}
@@ -638,6 +742,7 @@ export function App() {
             <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden`}>
               <DocumentList
                 documents={tabDocuments}
+                folders={tabFolders}
                 activeDocumentId={activeDocId}
                 onSelectDocument={(doc) => {
                   setActiveDocId(doc.id);
@@ -663,6 +768,12 @@ export function App() {
                 onOpenUploadModal={() => setIsUploadModalOpen(true)}
                 onAddPageToDoc={handleAddPageToDoc}
                 onRenameDocument={handleRenameDocument}
+                onCreateFolder={handleCreateFolder}
+                onRenameFolder={handleRenameFolder}
+                onUpdateFolderColor={handleUpdateFolderColor}
+                onDeleteFolder={handleDeleteFolder}
+                onMoveDocToFolder={handleMoveDocToFolder}
+                onUploadFilesToFolder={handleUploadFilesToFolder}
                 tabTitle={activeTab.name}
               />
             </div>
