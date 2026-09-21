@@ -1305,6 +1305,8 @@ export function App() {
                 onSyncLocalDocs={handleSyncLocalDocs}
                 onUpdateDocNotes={handleUpdateDocNotes}
                 tabTitle={activeTab.name}
+                solicitor={user}
+                clientName={selectedClient?.name}
               />
             </div>
 
@@ -1336,6 +1338,9 @@ export function App() {
                 onRenamePage={handleRenamePage}
                 onUpdateDocumentRotation={handleUpdateDocumentRotation}
                 onUpdateDocumentContent={handleUpdateDocumentContent}
+                solicitor={user}
+                clientName={selectedClient?.name}
+                tabTitle={activeTab.name}
                 isReadOnly={false}
               />
             </div>

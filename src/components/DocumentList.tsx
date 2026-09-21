@@ -32,9 +32,11 @@ import {
   GripVertical,
   CornerDownRight,
   Cloud,
-  Loader2
+  Loader2,
+  Printer
 } from 'lucide-react';
-import { DocumentItem, FileType, DocumentStatus, DocumentFolder, FolderColor } from '../types';
+import { DocumentItem, FileType, DocumentStatus, DocumentFolder, FolderColor, SolicitorProfile } from '../types';
+import { printDocument, printMultipleDocuments } from '../lib/printUtils';
 
 export const FOLDER_COLORS: { id: FolderColor; name: string; bg: string; text: string; border: string; hoverBg: string }[] = [
   { id: 'blue', name: 'Blue', bg: '#e8f0fe', text: '#1a73e8', border: '#1a73e8', hoverBg: '#d2e3fc' },
@@ -85,6 +87,10 @@ interface DocumentListProps {
   onBatchAutoNumberDocs?: (docIds: string[]) => void;
   onBatchUpdateStatus?: (docIds: string[], status: DocumentStatus) => void;
   onUpdateDocNotes?: (docId: string, notes: string, description: string) => void;
+  solicitor?: SolicitorProfile | null;
+  clientName?: string;
+  onPrintDocument?: (doc: DocumentItem) => void;
+  onPrintMultipleDocuments?: (docs: DocumentItem[]) => void;
   tabTitle: string;
 }
 
@@ -122,6 +128,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onBatchAutoNumberDocs,
   onBatchUpdateStatus,
   onUpdateDocNotes,
+  solicitor,
+  clientName,
+  onPrintDocument,
+  onPrintMultipleDocuments,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,6 +140,82 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
   const [targetFolderUploadId, setTargetFolderUploadId] = useState<string | null>(null);
+
+  // Printing state
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [printStatus, setPrintStatus] = useState<string>('');
+
+  const handlePrintSingle = async (doc: DocumentItem) => {
+    if (isPrinting) return;
+    try {
+      setIsPrinting(true);
+      if (onPrintDocument) {
+        onPrintDocument(doc);
+      } else {
+        await printDocument(doc, {
+          solicitor,
+          clientName,
+          tabTitle,
+          onProgress: (msg) => setPrintStatus(msg)
+        });
+      }
+    } catch (e) {
+      console.warn('Print error:', e);
+    } finally {
+      setIsPrinting(false);
+      setPrintStatus('');
+    }
+  };
+
+  const handlePrintBatch = async (docIds: string[]) => {
+    if (isPrinting) return;
+    const targetDocs = documents.filter(d => docIds.includes(d.id));
+    try {
+      setIsPrinting(true);
+      if (onPrintMultipleDocuments) {
+        onPrintMultipleDocuments(targetDocs);
+      } else {
+        await printMultipleDocuments(targetDocs, {
+          solicitor,
+          clientName,
+          tabTitle,
+          onProgress: (msg) => setPrintStatus(msg)
+        });
+      }
+    } catch (e) {
+      console.warn('Batch print error:', e);
+    } finally {
+      setIsPrinting(false);
+      setPrintStatus('');
+    }
+  };
+
+  const handlePrintAll = async () => {
+    if (isPrinting) return;
+    const docsToPrint = filteredDocuments.filter(d => d.hasFile || d.content);
+    if (docsToPrint.length === 0) {
+      alert('No documents with uploaded files found to print.');
+      return;
+    }
+    try {
+      setIsPrinting(true);
+      if (onPrintMultipleDocuments) {
+        onPrintMultipleDocuments(docsToPrint);
+      } else {
+        await printMultipleDocuments(docsToPrint, {
+          solicitor,
+          clientName,
+          tabTitle,
+          onProgress: (msg) => setPrintStatus(msg)
+        });
+      }
+    } catch (e) {
+      console.warn('Print all error:', e);
+    } finally {
+      setIsPrinting(false);
+      setPrintStatus('');
+    }
+  };
 
   // Folder and view filtering
   const [folderFilter, setFolderFilter] = useState<'all' | 'in_folders' | 'without_folders'>('all');
@@ -805,6 +891,16 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   >
                     <Share2 className="w-3.5 h-3.5" />
                   </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePrintSingle(doc);
+                    }}
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    title="Print Document (ID card smart sizing on single A4 page)"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                  </button>
                 </>
               )}
               {/* If inside folder, offer quick move to root */}
@@ -1336,6 +1432,14 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           </button>
         </div>
 
+        {/* Printing Progress Banner */}
+        {isPrinting && (
+          <div className="bg-[#e8f0fe] border border-[#1a73e8]/30 rounded-xl p-2.5 flex items-center gap-2 text-xs text-[#1a73e8] animate-in fade-in">
+            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+            <span className="font-semibold">{printStatus || 'Preparing print layout (smart ID card scaling)...'}</span>
+          </div>
+        )}
+
         {/* Selection Bar */}
         <div className="flex items-center justify-between text-xs text-[#5f6368] pt-1 px-1">
           <div 
@@ -1353,9 +1457,25 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 : `Select all (${filteredDocuments.length})`}
             </span>
           </div>
-          <span className="text-[11px] text-[#5f6368] truncate max-w-[120px]">
-            {tabTitle}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrintAll}
+              disabled={isPrinting}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] border border-[#1a73e8]/30 rounded-lg transition-colors shadow-xs"
+              title="Print all documents in this tab (Smart ID card scaling on single A4 page)"
+            >
+              {isPrinting ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Printer className="w-3 h-3" />
+              )}
+              <span>Print All</span>
+            </button>
+            <span className="text-[11px] text-[#5f6368] truncate max-w-[120px]">
+              {tabTitle}
+            </span>
+          </div>
         </div>
 
         {/* Multi-Select Floating Batch Action Toolbar */}
@@ -1377,6 +1497,22 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
             {/* Batch Action Buttons */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              {/* Batch Print Selected */}
+              <button
+                type="button"
+                onClick={() => handlePrintBatch(selectedDocIds)}
+                disabled={isPrinting}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-600 transition-colors shadow-xs"
+                title="Print all selected documents (Smart A4 & ID Card sizing)"
+              >
+                {isPrinting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                ) : (
+                  <Printer className="w-3.5 h-3.5 text-blue-400" />
+                )}
+                <span>Print Selected ({selectedDocIds.length})</span>
+              </button>
+
               {/* Move to Folder Dropdown */}
               <div className="relative">
                 <button

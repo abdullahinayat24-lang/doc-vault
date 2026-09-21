@@ -28,9 +28,11 @@ import {
   X,
   FileText,
   ChevronDown,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Printer
 } from 'lucide-react';
-import { DocumentItem, DocumentStatus } from '../../types';
+import { DocumentItem, DocumentStatus, SolicitorProfile } from '../../types';
+import { printDocument } from '../../lib/printUtils';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { EpubViewer } from './EpubViewer';
@@ -49,6 +51,10 @@ interface DocumentViewerProps {
   onRenamePage?: (docId: string, pageIndex: number, newPageName: string) => void;
   onUpdateDocumentRotation?: (id: string, rotation: number, pageIndex?: number) => void;
   onUpdateDocumentContent?: (docId: string, newContent: string) => void;
+  solicitor?: SolicitorProfile | null;
+  clientName?: string;
+  tabTitle?: string;
+  onPrintDocument?: (doc: DocumentItem) => void;
   isReadOnly?: boolean;
 }
 
@@ -64,6 +70,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onRenamePage,
   onUpdateDocumentRotation,
   onUpdateDocumentContent,
+  solicitor,
+  clientName,
+  tabTitle,
+  onPrintDocument,
   isReadOnly = false
 }) => {
   const [zoom, setZoom] = useState<number>(1.0);
@@ -78,8 +88,43 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [nameInput, setNameInput] = useState<string>('');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const addPageInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePrint = async (doc: DocumentItem) => {
+    if (isPrinting) return;
+    try {
+      setIsPrinting(true);
+      if (onPrintDocument) {
+        onPrintDocument(doc);
+      } else {
+        await printDocument(doc, {
+          solicitor,
+          clientName,
+          tabTitle
+        });
+      }
+    } catch (err) {
+      console.warn('Print error:', err);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // Keyboard shortcut Ctrl+P / Cmd+P
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+        if (document && (document.hasFile || document.content)) {
+          e.preventDefault();
+          handlePrint(document);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [document, solicitor, clientName, tabTitle]);
 
   // Sync controls when document or active page changes
   useEffect(() => {
@@ -486,6 +531,22 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </button>
           )}
 
+          {(document.hasFile || document.content) && (
+            <button
+              onClick={() => handlePrint(document)}
+              disabled={isPrinting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#1a73e8] bg-white hover:bg-[#e8f0fe] border border-[#dadce0] hover:border-[#1a73e8]/40 rounded-lg transition-colors shadow-xs"
+              title="Print document (Smart ID Card sizing on single A4 page) (Ctrl+P)"
+            >
+              {isPrinting ? (
+                <div className="w-3.5 h-3.5 border-2 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Printer className="w-3.5 h-3.5 text-[#1a73e8]" />
+              )}
+              <span className="hidden sm:inline">{isPrinting ? 'Printing...' : 'Print'}</span>
+            </button>
+          )}
+
           {document.hasFile && (
             <div className="relative">
               <div className="flex items-center">
@@ -500,7 +561,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   className="p-1.5 bg-white hover:bg-[#f1f3f4] border-y border-r border-[#dadce0] rounded-r-lg transition-colors text-[#5f6368] hover:text-[#202124]"
-                  title="Export options (JPG, PDF, Original)"
+                  title="Export options (JPG, PDF, Print, Original)"
                 >
                   <ChevronDown className="w-3.5 h-3.5" />
                 </button>
@@ -510,6 +571,16 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
                   <div className="absolute right-0 top-full mt-1.5 w-60 bg-white border border-[#dadce0] rounded-xl shadow-xl py-1.5 z-50 text-xs animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      onClick={() => {
+                        handlePrint(document);
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-3.5 py-2 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-semibold"
+                    >
+                      <Printer className="w-4 h-4 text-[#1a73e8]" />
+                      <span>Print Document (Ctrl+P)</span>
+                    </button>
                     <button
                       onClick={() => {
                         onExport(document);
