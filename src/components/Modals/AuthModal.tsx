@@ -149,17 +149,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <User className="w-3.5 h-3.5" />
             <span>Firm Profile</span>
           </button>
-          <button
-            onClick={() => setActiveTab('keys')}
-            className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-2 ${
-              activeTab === 'keys'
-                ? 'border-[#1a73e8] text-[#1a73e8] font-semibold'
-                : 'border-transparent hover:text-[#202124]'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>One-Time Keys ({inviteKeys.filter(k => !k.isUsed).length})</span>
-          </button>
+          {currentUser.role !== 'staff' && (
+            <button
+              onClick={() => setActiveTab('keys')}
+              className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-2 ${
+                activeTab === 'keys'
+                  ? 'border-[#1a73e8] text-[#1a73e8] font-semibold'
+                  : 'border-transparent hover:text-[#202124]'
+              }`}
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>One-Time Keys ({inviteKeys.filter(k => !k.isUsed).length})</span>
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('supabase')}
             className={`py-3 px-3 border-b-2 transition-colors flex items-center gap-2 ${
@@ -261,29 +263,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-[#e8f0fe]/60 border border-[#1a73e8]/30 rounded-xl text-xs space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-[#1a73e8] flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5" />
-                    <span>Firm Registration / Invitation Key</span>
-                  </span>
-                  <span className="text-[10px] text-[#5f6368]">Admin Secret</span>
+              {currentUser.role !== 'staff' && (
+                <div className="p-3 bg-[#e8f0fe]/60 border border-[#1a73e8]/30 rounded-xl text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-[#1a73e8] flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5" />
+                      <span>Firm Master Passcode</span>
+                    </span>
+                    <span className="text-[10px] text-[#5f6368]">Admin Only</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={regKey}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRegKey(val);
+                      localStorage.setItem('docvault_registration_key', val.trim());
+                    }}
+                    placeholder="e.g. LEGAL-VAULT-2026"
+                    className="w-full px-2.5 py-1.5 bg-white border border-[#dadce0] focus:border-[#1a73e8] rounded-lg text-xs font-mono font-bold tracking-wider outline-none text-[#1a73e8]"
+                  />
+                  <p className="text-[10px] text-[#5f6368] leading-tight">
+                    Keep this master passcode secret. It grants full administrative and key generation rights.
+                  </p>
                 </div>
-                <input
-                  type="text"
-                  value={regKey}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRegKey(val);
-                    localStorage.setItem('docvault_registration_key', val.trim());
-                  }}
-                  placeholder="e.g. LEGAL-VAULT-2026"
-                  className="w-full px-2.5 py-1.5 bg-white border border-[#dadce0] focus:border-[#1a73e8] rounded-lg text-xs font-mono font-bold tracking-wider outline-none text-[#1a73e8]"
-                />
-                <p className="text-[10px] text-[#5f6368] leading-tight">
-                  Anyone creating a new account must enter this key. Keep it confidential to prevent spam.
-                </p>
-              </div>
+              )}
 
               <div className="p-3 bg-[#f8fafd] border border-[#dadce0] rounded-xl text-xs space-y-1">
                 <div className="flex items-center justify-between">
@@ -387,7 +391,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </form>
           )}
 
-          {activeTab === 'keys' && (
+          {activeTab === 'keys' && currentUser.role !== 'staff' && (
             <div className="space-y-4">
               {/* Generator form */}
               <div className="p-4 bg-[#f8fafd] border border-[#dadce0] rounded-2xl">

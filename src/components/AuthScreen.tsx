@@ -49,6 +49,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     setLoading(true);
     setError(null);
 
+    let userRole: 'admin' | 'staff' = 'admin';
+
     // Firm Registration Key enforcement for sign up (supports Master Key & One-Time Keys)
     if (mode === 'signup') {
       const check = validateAndConsumeInviteKey(registrationKey, email.trim());
@@ -57,6 +59,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         setLoading(false);
         return;
       }
+      userRole = check.role || 'staff';
     }
 
     // If user entered Supabase credentials, save them
@@ -75,7 +78,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
               data: {
                 company_name: companyName.trim() || 'My Legal Practice',
                 display_name: displayName.trim() || email.split('@')[0],
-                phone: phone.trim()
+                phone: phone.trim(),
+                role: userRole
               }
             }
           });
@@ -88,7 +92,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             companyName: companyName.trim() || 'My Legal Practice',
             phone: phone.trim(),
             pinCode: '1234',
-            isDemoMode: false
+            isDemoMode: false,
+            role: userRole
           };
           onAuthenticated(userProfile);
         } else {
@@ -105,7 +110,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             companyName: data.user?.user_metadata?.company_name || 'My Legal Practice',
             phone: data.user?.user_metadata?.phone || '',
             pinCode: '1234',
-            isDemoMode: false
+            isDemoMode: false,
+            role: data.user?.user_metadata?.role || 'admin'
           };
           onAuthenticated(userProfile);
         }
@@ -142,7 +148,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             companyName: companyName.trim() || 'My Legal Practice',
             phone: phone.trim() || '',
             pinCode: '1234',
-            isDemoMode: !isSupabaseConfigured()
+            isDemoMode: !isSupabaseConfigured(),
+            role: userRole
           };
           savedAccounts[emailKey] = { ...userProfile, password };
           localStorage.setItem(accountsKey, JSON.stringify(savedAccounts));

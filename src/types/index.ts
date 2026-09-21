@@ -83,6 +83,7 @@ export interface SolicitorProfile {
   address?: string;
   pinCode: string; // 4-digit PIN for session lock
   isDemoMode: boolean;
+  role?: 'admin' | 'staff';
 }
 
 export type UserProfile = SolicitorProfile;

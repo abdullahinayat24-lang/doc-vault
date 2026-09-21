@@ -300,10 +300,10 @@ export const deleteInviteKey = (id: string) => {
 export const validateAndConsumeInviteKey = (
   inputKey: string,
   userEmail: string
-): { valid: boolean; reason?: string } => {
+): { valid: boolean; reason?: string; role?: 'admin' | 'staff' } => {
   const cleanInput = inputKey.trim().toUpperCase();
 
-  // 1. Check Master Admin Key (for firm owner)
+  // 1. Check Master Admin Key (Firm Owner) -> Grants 'admin' rights (can manage firm and generate keys)
   const masterKey = (
     (import.meta as any).env?.VITE_REGISTRATION_KEY ||
     localStorage.getItem('docvault_registration_key') ||
@@ -311,10 +311,10 @@ export const validateAndConsumeInviteKey = (
   ).trim().toUpperCase();
 
   if (cleanInput === masterKey) {
-    return { valid: true };
+    return { valid: true, role: 'admin' };
   }
 
-  // 2. Check generated one-time invite keys
+  // 2. Check generated one-time invite keys -> Grants 'staff' role (cannot generate keys for others)
   const keys = getInviteKeys();
   const matchedIndex = keys.findIndex((k) => k.key.toUpperCase() === cleanInput);
 
@@ -342,5 +342,5 @@ export const validateAndConsumeInviteKey = (
   keys[matchedIndex] = record;
   saveInviteKeys(keys);
 
-  return { valid: true };
+  return { valid: true, role: 'staff' };
 };
