@@ -342,6 +342,28 @@ export function App() {
         documents={documents}
         tabs={tabs}
         onUploadClientFile={handleUploadToFileSlot}
+        onClientUploadNewDoc={async (collectionId, file) => {
+          const fileType = detectFileType(file.name, file.type);
+          const url = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.readAsDataURL(file);
+          });
+          const newItem: DocumentItem = {
+            id: 'doc_client_' + Math.random().toString(36).substring(2, 9),
+            name: file.name,
+            collectionId,
+            fileType,
+            fileSize: file.size,
+            url,
+            hasFile: true,
+            status: 'pending',
+            uploadedBy: 'client',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          setDocuments((prev) => [newItem, ...prev]);
+        }}
         onUpdateStatus={handleUpdateDocumentStatus}
         onBackToApp={() => {
           window.history.pushState({}, '', window.location.pathname);

@@ -24,6 +24,7 @@ import { DocumentItem, DocumentStatus } from '../../types';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { EpubViewer } from './EpubViewer';
+import { TextViewer } from './TextViewer';
 
 interface DocumentViewerProps {
   document: DocumentItem | null;
@@ -398,6 +399,12 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
           />
         ) : document.fileType === 'epub' ? (
           <EpubViewer
+            url={document.url}
+            name={document.name}
+            zoom={zoom}
+          />
+        ) : document.fileType === 'txt' ? (
+          <TextViewer
             url={document.url}
             name={document.name}
             zoom={zoom}

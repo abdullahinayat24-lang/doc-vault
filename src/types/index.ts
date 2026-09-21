@@ -2,6 +2,8 @@ export type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'epub' | 'txt' | 'other'
 
 export type DocumentStatus = 'missing' | 'disapproved' | 'pending' | 'approved';
 
+export type ShareType = 'viewer' | 'uploader'; // Document viewer vs Document uploader
+
 export interface CollectionTab {
   id: string;
   name: string;
@@ -27,6 +29,7 @@ export interface DocumentItem {
   createdAt: string;
   updatedAt?: string;
   description?: string;
+  uploadedBy?: 'solicitor' | 'client';
 }
 
 export type ShareScope = 'single' | 'multiple' | 'collection';
@@ -34,11 +37,11 @@ export type ShareScope = 'single' | 'multiple' | 'collection';
 export interface ShareRecord {
   id: string;
   title: string;
+  shareType: ShareType; // 'viewer' or 'uploader'
   scope: ShareScope;
   targetIds: string[]; // document IDs or collection ID
   passcode: string; // 4-digit PIN required to view
-  allowClientUpload?: boolean; // allows client to upload missing documents
-  allowClientApprove?: boolean;
+  allowClientUpload?: boolean;
   createdAt: string;
   expiresAt?: string;
   ownerId: string;

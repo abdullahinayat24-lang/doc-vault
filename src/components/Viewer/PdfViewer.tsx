@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { ExternalLink, Layers, Sparkles } from 'lucide-react';
 
 // Configure PDF.js worker
 if (typeof window !== 'undefined' && 'Worker' in window) {
@@ -19,6 +20,7 @@ interface PdfViewerProps {
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({
   url,
+  name,
   zoom,
   rotation,
   currentPage,
@@ -33,6 +35,19 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [viewMode, setViewMode] = useState<'canvas' | 'native'>('canvas');
+
+  // Helper to convert base64 data URI to Uint8Array
+  const dataUriToUint8Array = (dataUri: string): Uint8Array => {
+    const base64 = dataUri.split(',')[1] || dataUri;
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return bytes;
+  };
 
   // Load PDF Document
   useEffect(() => {
@@ -42,7 +57,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     const loadPdf = async () => {
       try {
-        const loadingTask = pdfjsLib.getDocument(url);
+        let source: any = url;
+        if (url.startsWith('data:application/pdf') || url.startsWith('data:;base64,')) {
+          source = { data: dataUriToUint8Array(url) };
+        }
+
+        const loadingTask = pdfjsLib.getDocument(source);
         const doc = await loadingTask.promise;
         if (!isCancelled) {
           setPdfDoc(doc);
@@ -50,9 +70,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           setLoading(false);
         }
       } catch (err: any) {
-        console.warn('PDF.js canvas load failed, falling back to embedded frame:', err);
+        console.warn('PDF.js canvas parse note:', err);
         if (!isCancelled) {
-          setError(err.message || 'Failed to render PDF');
+          // Switch to native embedded view if canvas parse has issues
+          setViewMode('native');
+          setError(err.message || 'Switched to native PDF view');
           setLoading(false);
         }
       }
@@ -67,7 +89,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   // Render current page onto canvas
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current) return;
+    if (!pdfDoc || !canvasRef.current || viewMode === 'native') return;
 
     let renderTask: any = null;
 
@@ -105,9 +127,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         renderTask.cancel();
       }
     };
-  }, [pdfDoc, currentPage, zoom, rotation]);
+  }, [pdfDoc, currentPage, zoom, rotation, viewMode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (viewMode === 'native') return;
     e.preventDefault();
     setIsDragging(true);
     setDragStart({
@@ -117,7 +140,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
+    if (!isDragging || viewMode === 'native') return;
     onPanChange({
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y
@@ -129,60 +152,79 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   };
 
   return (
-    <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      className={`w-full h-full flex items-center justify-center overflow-auto p-4 relative ${
-        isDragging ? 'cursor-grabbing' : 'cursor-grab'
-      }`}
-    >
-      {loading && (
-        <div className="flex flex-col items-center gap-2 text-[#5f6368]">
-          <div className="w-8 h-8 border-3 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs">Loading PDF document...</p>
-        </div>
-      )}
-
-      {error ? (
-        // Fallback embedded object if canvas load fails
-        <div className="w-full h-full flex flex-col items-center justify-center">
-          <object
-            data={url}
-            type="application/pdf"
-            className="w-full h-[80vh] rounded-lg shadow border border-[#dadce0]"
-          >
-            <div className="text-center p-6 bg-white rounded-xl shadow border border-[#dadce0]">
-              <p className="text-sm font-medium text-[#202124]">PDF Preview Available</p>
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-block px-4 py-2 bg-[#1a73e8] text-white text-xs font-medium rounded-lg"
-              >
-                Open in Native Viewer
-              </a>
-            </div>
-          </object>
-        </div>
-      ) : (
-        <div
-          style={{
-            transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
-            transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-          }}
-          className="flex justify-center"
+    <div className="w-full h-full flex flex-col relative overflow-hidden bg-[#f8fafd]">
+      {/* PDF View Mode Switcher Badge */}
+      <div className="absolute top-3 right-4 z-20 flex items-center gap-1.5 bg-white/95 backdrop-blur-xs border border-[#dadce0] rounded-xl p-1 shadow-sm text-xs select-none">
+        <button
+          onClick={() => setViewMode('canvas')}
+          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
+            viewMode === 'canvas'
+              ? 'bg-[#1a73e8] text-white shadow-xs'
+              : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
+          }`}
+          title="Interactive canvas with zoom, pan, and rotate controls"
         >
-          <canvas
-            ref={canvasRef}
-            className="shadow-2xl rounded-sm bg-white border border-[#dadce0] max-w-none"
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Interactive Canvas</span>
+        </button>
+
+        <button
+          onClick={() => setViewMode('native')}
+          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
+            viewMode === 'native'
+              ? 'bg-[#1a73e8] text-white shadow-xs'
+              : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
+          }`}
+          title="Native browser PDF reader with text selection and print"
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Native Reader</span>
+        </button>
+      </div>
+
+      {/* Main Container */}
+      <div
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        className={`w-full flex-1 flex items-center justify-center overflow-auto p-4 relative ${
+          viewMode === 'canvas' && isDragging ? 'cursor-grabbing' : viewMode === 'canvas' ? 'cursor-grab' : ''
+        }`}
+      >
+        {loading && (
+          <div className="flex flex-col items-center gap-2 text-[#5f6368]">
+            <div className="w-8 h-8 border-3 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs">Rendering PDF document...</p>
+          </div>
+        )}
+
+        {viewMode === 'native' ? (
+          <div className="w-full h-full flex flex-col items-center justify-center p-2">
+            <iframe
+              src={url}
+              title={name}
+              className="w-full h-full rounded-2xl shadow-md border border-[#dadce0] bg-white"
+            />
+          </div>
+        ) : (
+          <div
             style={{
-              maxHeight: zoom <= 1 ? '82vh' : 'none'
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
+              transition: isDragging ? 'none' : 'transform 0.1s ease-out'
             }}
-          />
-        </div>
-      )}
+            className="flex justify-center"
+          >
+            <canvas
+              ref={canvasRef}
+              className="shadow-2xl rounded-sm bg-white border border-[#dadce0] max-w-none"
+              style={{
+                maxHeight: zoom <= 1 ? '82vh' : 'none'
+              }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 };
