@@ -12,7 +12,8 @@ import {
   AlertCircle,
   ExternalLink,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Key
 } from 'lucide-react';
 import { SolicitorProfile } from '../types';
 import { supabase, isSupabaseConfigured, updateSupabaseCredentials } from '../lib/supabase';
@@ -28,6 +29,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [companyName, setCompanyName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
+  const [registrationKey, setRegistrationKey] = useState('');
 
   // Supabase cloud config
   const [showCloudConfig, setShowCloudConfig] = useState(false);
@@ -45,6 +47,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+
+    // Firm Registration Key enforcement for sign up (prevents public spam accounts)
+    if (mode === 'signup') {
+      const allowedKey = (
+        (import.meta as any).env?.VITE_REGISTRATION_KEY || 
+        localStorage.getItem('docvault_registration_key') || 
+        'LEGAL-VAULT-2026'
+      ).trim();
+
+      if (!registrationKey.trim() || registrationKey.trim() !== allowedKey) {
+        setError('Invalid Firm Registration Key. Registration is restricted to authorized personnel with a valid invitation key.');
+        setLoading(false);
+        return;
+      }
+    }
 
     // If user entered Supabase credentials, save them
     if (supabaseUrl.trim() && supabaseKey.trim()) {
@@ -118,19 +135,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             }
             onAuthenticated(existing);
           } else {
-            // No previous registration found, offer smooth registration
-            const userProfile: SolicitorProfile = {
-              id: 'user_' + Math.random().toString(36).substring(2, 10),
-              email: email.trim(),
-              displayName: email.split('@')[0],
-              companyName: 'My Legal Practice',
-              phone: '',
-              pinCode: '1234',
-              isDemoMode: true
-            };
-            savedAccounts[emailKey] = { ...userProfile, password };
-            localStorage.setItem(accountsKey, JSON.stringify(savedAccounts));
-            onAuthenticated(userProfile);
+            throw new Error('No account found with this email. Please switch to "Create Your Account" and enter your Firm Registration Key to register.');
           }
         } else {
           // Signup mode
@@ -260,6 +265,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                     className="w-full px-3 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#202124] mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#1a73e8]" />
+                    <span>Firm Registration Key *</span>
+                  </span>
+                  <span className="text-[10px] text-[#1a73e8] font-semibold bg-[#e8f0fe] px-1.5 py-0.5 rounded">
+                    Restricted
+                  </span>
+                </label>
+                <div className="relative flex items-center">
+                  <Key className="w-4 h-4 text-[#5f6368] absolute left-3" />
+                  <input
+                    type="password"
+                    placeholder="Enter special registration passcode..."
+                    value={registrationKey}
+                    onChange={(e) => setRegistrationKey(e.target.value)}
+                    required
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs font-mono tracking-wider outline-none"
+                  />
+                </div>
+                <p className="text-[11px] text-[#5f6368] mt-1">
+                  Only authorized solicitors with this key can register. Prevents spam or unauthorized accounts.
+                </p>
               </div>
             </>
           )}

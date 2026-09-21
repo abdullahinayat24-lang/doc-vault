@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, User, Database, ShieldCheck, Mail, Building, Phone, Image as ImageIcon, CheckCircle, ExternalLink } from 'lucide-react';
+import { X, User, Database, ShieldCheck, Mail, Building, Phone, Image as ImageIcon, CheckCircle, ExternalLink, Key } from 'lucide-react';
 import { SolicitorProfile } from '../../types';
 import { updateSupabaseCredentials } from '../../lib/supabase';
 
@@ -21,6 +21,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [companyName, setCompanyName] = useState(currentUser.companyName || '');
   const [companyLogo, setCompanyLogo] = useState(currentUser.companyLogo || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
+  const [regKey, setRegKey] = useState(
+    localStorage.getItem('docvault_registration_key') || 'LEGAL-VAULT-2026'
+  );
   const [activeTab, setActiveTab] = useState<'profile' | 'supabase'>('profile');
   
   // Supabase cloud credentials
@@ -205,6 +208,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="w-full pl-9 pr-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="p-3 bg-[#e8f0fe]/60 border border-[#1a73e8]/30 rounded-xl text-xs space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[#1a73e8] flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Firm Registration / Invitation Key</span>
+                  </span>
+                  <span className="text-[10px] text-[#5f6368]">Admin Secret</span>
+                </div>
+                <input
+                  type="text"
+                  value={regKey}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRegKey(val);
+                    localStorage.setItem('docvault_registration_key', val.trim());
+                  }}
+                  placeholder="e.g. LEGAL-VAULT-2026"
+                  className="w-full px-2.5 py-1.5 bg-white border border-[#dadce0] focus:border-[#1a73e8] rounded-lg text-xs font-mono font-bold tracking-wider outline-none text-[#1a73e8]"
+                />
+                <p className="text-[10px] text-[#5f6368] leading-tight">
+                  Anyone creating a new account must enter this key. Keep it confidential to prevent spam.
+                </p>
               </div>
 
               <div className="p-3 bg-[#f8fafd] border border-[#dadce0] rounded-xl text-xs space-y-1">
