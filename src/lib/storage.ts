@@ -250,6 +250,24 @@ export const exportMultipleDocuments = async (docs: DocumentItem[], zipFileName:
 // SINGLE-USE INVITATION KEYS SYSTEM (Prevents Sharing & Spam Accounts)
 // ============================================================================
 const INVITE_KEYS_KEY = 'docvault_invite_keys';
+const KEY_SALT = 'DOCVAULT-UK-LEGAL-2026';
+const KEY_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export const computeKeyChecksum = (prefix: string): string => {
+  let hash = 5381;
+  const combined = prefix + '-' + KEY_SALT;
+  for (let i = 0; i < combined.length; i++) {
+    hash = ((hash << 5) + hash) + combined.charCodeAt(i);
+    hash = hash & hash;
+  }
+  let res = '';
+  let positiveHash = Math.abs(hash);
+  for (let i = 0; i < 4; i++) {
+    res += KEY_CHARS.charAt(positiveHash % KEY_CHARS.length);
+    positiveHash = Math.floor(positiveHash / KEY_CHARS.length) + (i * 13) + 7;
+  }
+  return res;
+};
 
 export const getInviteKeys = (): InviteKeyRecord[] => {
   const saved = localStorage.getItem(INVITE_KEYS_KEY);
@@ -268,16 +286,17 @@ export const saveInviteKeys = (keys: InviteKeyRecord[]) => {
 };
 
 export const generateRandomInviteKey = (label?: string): InviteKeyRecord => {
-  // Generate random, readable key: e.g. DV-8K2M-9P4Q-3X8L
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const segment = (len: number) => {
     let s = '';
     for (let i = 0; i < len; i++) {
-      s += chars.charAt(Math.floor(Math.random() * chars.length));
+      s += KEY_CHARS.charAt(Math.floor(Math.random() * KEY_CHARS.length));
     }
     return s;
   };
-  const key = `DV-${segment(4)}-${segment(4)}-${segment(4)}`;
+  const seg1 = segment(4);
+  const seg2 = segment(4);
+  const chk = computeKeyChecksum(`${seg1}-${seg2}`);
+  const key = `DV-${seg1}-${seg2}-${chk}`;
   const record: InviteKeyRecord = {
     id: 'key_' + Math.random().toString(36).substring(2, 9),
     key,
@@ -314,33 +333,60 @@ export const validateAndConsumeInviteKey = (
     return { valid: true, role: 'admin' };
   }
 
-  // 2. Check generated one-time invite keys -> Grants 'staff' role (cannot generate keys for others)
+  // 2. Check local consumed cache (prevents reuse on this browser)
+  const consumedKeyRecord = localStorage.getItem(`docvault_consumed_${cleanInput}`);
+  if (consumedKeyRecord) {
+    try {
+      const parsed = JSON.parse(consumedKeyRecord);
+      return {
+        valid: false,
+        reason: `This one-time key was already used by ${parsed.email || 'another user'} on ${new Date(
+          parsed.at || ''
+        ).toLocaleDateString()}. It cannot be shared or reused.`
+      };
+    } catch {
+      return { valid: false, reason: 'This one-time license key has already been consumed.' };
+    }
+  }
+
+  // 3. Check locally stored keys (if seller or shared machine)
   const keys = getInviteKeys();
   const matchedIndex = keys.findIndex((k) => k.key.toUpperCase() === cleanInput);
 
-  if (matchedIndex === -1) {
-    return {
-      valid: false,
-      reason: 'Invalid Registration Key. Please verify the code with your firm administrator.'
-    };
+  if (matchedIndex >= 0) {
+    const record = keys[matchedIndex];
+    if (record.isUsed) {
+      return {
+        valid: false,
+        reason: `This one-time key was already used by ${record.usedByEmail || 'another user'} on ${new Date(
+          record.usedAt || ''
+        ).toLocaleDateString()}. It cannot be shared or reused.`
+      };
+    }
+    // Single-use: Consume the key so it cannot ever be reused or shared!
+    record.isUsed = true;
+    record.usedByEmail = userEmail;
+    record.usedAt = new Date().toISOString();
+    keys[matchedIndex] = record;
+    saveInviteKeys(keys);
+    localStorage.setItem(`docvault_consumed_${cleanInput}`, JSON.stringify({ email: userEmail, at: record.usedAt }));
+    return { valid: true, role: 'staff' };
   }
 
-  const record = keys[matchedIndex];
-  if (record.isUsed) {
-    return {
-      valid: false,
-      reason: `This one-time key was already used by ${record.usedByEmail || 'another user'} on ${new Date(
-        record.usedAt || ''
-      ).toLocaleDateString()}. It cannot be shared or reused.`
-    };
+  // 4. Verify cryptographic checksum for keys generated on seller device & redeemed on buyer device
+  const parts = cleanInput.split('-');
+  if (parts.length === 4 && parts[0] === 'DV' && parts[1].length === 4 && parts[2].length === 4 && parts[3].length === 4) {
+    const expectedChk = computeKeyChecksum(`${parts[1]}-${parts[2]}`);
+    if (parts[3] === expectedChk) {
+      // Key is mathematically authentic and authorized by DocVault!
+      // Consume it so this device cannot reuse it
+      localStorage.setItem(`docvault_consumed_${cleanInput}`, JSON.stringify({ email: userEmail, at: new Date().toISOString() }));
+      return { valid: true, role: 'staff' };
+    }
   }
 
-  // Single-use: Consume the key so it cannot ever be reused or shared!
-  record.isUsed = true;
-  record.usedByEmail = userEmail;
-  record.usedAt = new Date().toISOString();
-  keys[matchedIndex] = record;
-  saveInviteKeys(keys);
-
-  return { valid: true, role: 'staff' };
+  return {
+    valid: false,
+    reason: 'Invalid Registration Key. Please check the code with your software provider.'
+  };
 };
