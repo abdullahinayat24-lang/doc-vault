@@ -49,10 +49,34 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [error, setError] = useState<string | null>(null);
   const [showPricingModal, setShowPricingModal] = useState(false);
 
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim() || !supabase) return;
+    setResending(true);
+    setResendMessage(null);
+    try {
+      const { error: resendErr } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim()
+      });
+      if (resendErr) throw resendErr;
+      setResendMessage('Verification email resent successfully! Please check your inbox and spam folder.');
+    } catch (err: any) {
+      setResendMessage(err.message || 'Failed to resend. Please confirm the user in your Supabase dashboard.');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const isEmailNotConfirmed = Boolean(error && error.toLowerCase().includes('email not confirmed'));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setResendMessage(null);
 
     let userRole: 'admin' | 'staff' = 'admin';
 
@@ -67,9 +91,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
       userRole = check.role || 'staff';
     }
 
-    // If user entered Supabase credentials, save them
-    if (supabaseUrl.trim() && supabaseKey.trim()) {
-      updateSupabaseCredentials(supabaseUrl.trim(), supabaseKey.trim());
+    // If user entered Supabase credentials, clean and save them
+    const sanitizedUrl = supabaseUrl.trim().replace('eccdphuupctvdayyenh1', 'eccdphuupctvdayyenhl');
+    if (sanitizedUrl && supabaseKey.trim()) {
+      updateSupabaseCredentials(sanitizedUrl, supabaseKey.trim());
     }
 
     try {
@@ -217,9 +242,45 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-[#fce8e6] border border-[#fad2cf] rounded-xl text-xs text-[#d93025] flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+          <div className={`mb-4 p-3.5 rounded-xl text-xs flex flex-col gap-2 ${
+            isEmailNotConfirmed 
+              ? 'bg-[#fef7e0] border border-[#f9ab00]/50 text-[#b06000]' 
+              : 'bg-[#fce8e6] border border-[#fad2cf] text-[#d93025]'
+          }`}>
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 font-medium">{error}</div>
+            </div>
+
+            {isEmailNotConfirmed && (
+              <div className="mt-1 pt-2 border-t border-[#f9ab00]/30 space-y-2 text-[11px] text-[#5f6368]">
+                <p>
+                  Supabase requires your email to be verified before signing in.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResendConfirmation}
+                    disabled={resending}
+                    className="px-3 py-1.5 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-lg text-xs transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    <span>{resending ? 'Sending...' : 'Resend Verification Email'}</span>
+                  </button>
+                </div>
+                {resendMessage && (
+                  <p className="font-semibold text-[#137333] mt-1">{resendMessage}</p>
+                )}
+                <div className="bg-white/80 p-2.5 rounded-lg border border-[#f9ab00]/30 text-[10px] leading-relaxed">
+                  <strong>Quick 1-Click Fix in Supabase Dashboard:</strong>
+                  <br />
+                  1. In your Supabase Dashboard, go to <strong>Authentication &rarr; Users</strong>.
+                  <br />
+                  2. Click the <strong>...</strong> next to your user &rarr; select <strong>Confirm email</strong>.
+                  <br />
+                  3. <em>(Recommended)</em> Under <strong>Authentication &rarr; Providers &rarr; Email</strong>, disable <strong>"Confirm email"</strong> to allow instant logins.
+                </div>
+              </div>
+            )}
           </div>
         )}
 

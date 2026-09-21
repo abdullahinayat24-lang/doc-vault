@@ -56,18 +56,19 @@ CREATE TABLE IF NOT EXISTS public.collections (
 --   'approved': GREEN (Verified and stamped)
 --   'pending': WHITE / Normal (Uploaded, awaiting review)
 CREATE TABLE IF NOT EXISTS public.documents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  solicitor_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  collection_id UUID NOT NULL REFERENCES public.collections(id) ON DELETE CASCADE,
+  id TEXT PRIMARY KEY,
+  solicitor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES public.clients(id) ON DELETE CASCADE,
+  collection_id UUID REFERENCES public.collections(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  file_type TEXT NOT NULL, -- 'pdf', 'png', 'jpg', 'jpeg', 'epub', 'txt'
+  file_type TEXT NOT NULL,
   file_size BIGINT DEFAULT 0,
   url TEXT,
+  content TEXT, -- Editable document text / HTML content
   has_file BOOLEAN DEFAULT true, -- false for missing requirement slots
   status TEXT DEFAULT 'pending' CHECK (status IN ('missing', 'disapproved', 'pending', 'approved')),
   notes TEXT,
-  storage_path TEXT, -- Organized as: {solicitor_id}/{client_id}/{collection_id}/{filename}
+  storage_path TEXT,
   uploaded_by TEXT DEFAULT 'solicitor' CHECK (uploaded_by IN ('solicitor', 'client')),
   created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -79,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
 --   'viewer': Portal for client to view/inspect approved documents
 CREATE TABLE IF NOT EXISTS public.shared_links (
   id TEXT PRIMARY KEY,
-  solicitor_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  solicitor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   client_id UUID REFERENCES public.clients(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   share_type TEXT NOT NULL CHECK (share_type IN ('viewer', 'uploader')),
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS public.shared_links (
   target_ids TEXT[] NOT NULL,
   passcode TEXT NOT NULL, -- 4-digit privacy PIN
   allow_client_upload BOOLEAN DEFAULT true,
+  payload JSONB, -- Embedded documents & folders payload for instant cross-device access
   created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
   expires_at TIMESTAMPTZ
 );
@@ -114,11 +116,17 @@ CREATE POLICY "Solicitor manages own documents"
 ON public.documents FOR ALL USING (auth.uid() = solicitor_id);
 
 CREATE POLICY "Solicitor manages own share links" 
-ON public.shared_links FOR ALL USING (auth.uid() = solicitor_id);
+ON public.shared_links FOR ALL USING (auth.uid() = solicitor_id OR solicitor_id IS NULL);
 
 -- Public Policy for 4-digit PIN verified access
 CREATE POLICY "Public can view valid shared link" 
 ON public.shared_links FOR SELECT USING (true);
+
+CREATE POLICY "Public can upsert shared links" 
+ON public.shared_links FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Public can update shared links" 
+ON public.shared_links FOR UPDATE USING (true);
 
 -- ==============================================================================
 -- Supabase Storage Bucket Structure

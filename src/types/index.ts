@@ -1,4 +1,20 @@
-export type FileType = 'pdf' | 'png' | 'jpg' | 'jpeg' | 'epub' | 'txt' | 'other';
+export type FileType = 
+  | 'pdf' 
+  | 'png' 
+  | 'jpg' 
+  | 'jpeg' 
+  | 'webp' 
+  | 'gif' 
+  | 'epub' 
+  | 'txt' 
+  | 'doc' 
+  | 'docx' 
+  | 'rtf' 
+  | 'csv' 
+  | 'xlsx' 
+  | 'pptx' 
+  | 'md' 
+  | 'other';
 
 export type DocumentStatus = 'missing' | 'disapproved' | 'pending' | 'approved';
 
@@ -55,6 +71,7 @@ export interface DocumentPage {
   fileType: FileType;
   fileSize?: number;
   rotation?: number; // Saved permanent rotation (0, 90, 180, 270)
+  content?: string; // Editable rich text / HTML / raw text
 }
 
 export interface DocumentItem {
@@ -66,6 +83,7 @@ export interface DocumentItem {
   fileType: FileType;
   fileSize: number; // in bytes
   url: string; // Primary URL (Page 1 / Front Side)
+  content?: string; // Editable rich text / HTML / raw text content
   hasFile: boolean; // false if it is a missing document placeholder
   status: DocumentStatus; // 'missing' | 'disapproved' -> Red, 'approved' -> Green, 'pending' -> White
   notes?: string;
@@ -95,6 +113,7 @@ export interface ShareRecord {
   companyName?: string;
   companyLogo?: string;
   clientId?: string;
+  payload?: { docs: DocumentItem[]; folders?: DocumentFolder[] };
 }
 
 export interface SolicitorProfile {

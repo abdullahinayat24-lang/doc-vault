@@ -128,7 +128,9 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
   const getDocIcon = (fileType: string) => {
     switch (fileType) {
       case 'pdf': return <FileText className="w-3.5 h-3.5 text-[#d93025]" />;
-      case 'png': case 'jpg': case 'jpeg': return <ImageIcon className="w-3.5 h-3.5 text-[#1a73e8]" />;
+      case 'doc': case 'docx': case 'txt': case 'rtf': case 'md': return <FileText className="w-3.5 h-3.5 text-[#1a73e8]" />;
+      case 'png': case 'jpg': case 'jpeg': case 'webp': case 'gif': return <ImageIcon className="w-3.5 h-3.5 text-[#1a73e8]" />;
+      case 'csv': case 'xlsx': case 'pptx': return <File className="w-3.5 h-3.5 text-[#137333]" />;
       case 'epub': return <BookOpen className="w-3.5 h-3.5 text-[#9334e6]" />;
       default: return <File className="w-3.5 h-3.5 text-[#5f6368]" />;
     }
@@ -317,14 +319,12 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
       <input
         ref={slotUploadRef}
         type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
         onChange={handleSlotFileChange}
         className="hidden"
       />
       <input
         ref={additionalUploadRef}
         type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
         onChange={handleAdditionalFileChange}
         className="hidden"
       />

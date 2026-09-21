@@ -14,6 +14,8 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { DocumentItem, CollectionTab, ShareScope, ShareRecord, SolicitorProfile, ShareType, DocumentFolder } from '../../types';
+import { syncShareToSupabase } from '../../lib/storage';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -75,6 +77,26 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       targetDocs = allTabDocuments && allTabDocuments.length > 0 ? allTabDocuments : (currentDocument ? [currentDocument] : selectedDocuments);
     }
 
+    const targetFolders = allTabFolders && allTabFolders.length > 0 ? allTabFolders : [];
+    const payloadDocs = targetDocs.map((d) => ({
+      id: d.id,
+      name: d.name,
+      collectionId: d.collectionId,
+      fileType: d.fileType,
+      status: d.status,
+      hasFile: d.hasFile,
+      fileSize: d.fileSize || 0,
+      notes: d.notes,
+      description: d.description,
+      rotation: d.rotation || 0,
+      folderId: d.folderId,
+      url: d.url || '',
+      content: d.content,
+      pages: d.pages || [],
+      createdAt: d.createdAt || new Date().toISOString(),
+      updatedAt: d.updatedAt || new Date().toISOString()
+    }));
+
     const newRecord: ShareRecord = {
       id: shareId,
       title,
@@ -90,42 +112,30 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       companyLogo: user.companyLogo
     };
 
+    const payloadToSend = { share: newRecord, docs: payloadDocs, folders: targetFolders };
+    newRecord.payload = payloadToSend;
+
     onSaveShare(newRecord);
-
-    // Prepare payload documents preserving folder IDs and content
-    const payloadDocs = targetDocs.map((d) => ({
-      id: d.id,
-      name: d.name,
-      collectionId: d.collectionId,
-      fileType: d.fileType,
-      status: d.status,
-      hasFile: d.hasFile,
-      fileSize: d.fileSize || 0,
-      notes: d.notes,
-      description: d.description,
-      rotation: d.rotation || 0,
-      folderId: d.folderId,
-      url: d.url || '',
-      pages: d.pages || []
-    }));
-
-    const targetFolders = allTabFolders && allTabFolders.length > 0 ? allTabFolders : [];
-    let payloadToSend = { share: newRecord, docs: payloadDocs, folders: targetFolders };
-
-    // If total payload exceeds 4MB, optimize document binaries to fit bytebin comfortably
-    try {
-      if (JSON.stringify(payloadToSend).length > 4000000) {
-        const optimizedDocs = payloadDocs.map((d, i) => ({
-          ...d,
-          url: i < 15 ? d.url : ''
-        }));
-        payloadToSend = { share: newRecord, docs: optimizedDocs, folders: targetFolders };
-      }
-    } catch {}
 
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
 
-    // 1. Post to high-reliability cloud share store so ANY device / phone can load it instantly
+    // 1. Direct Supabase Cloud Storage (instant, enterprise reliable, no rate limits)
+    if (isSupabaseConfigured()) {
+      syncShareToSupabase(newRecord, targetDocs, targetFolders).catch((e) => console.warn('Supabase share error:', e));
+      const directCleanUrl = `${baseUrl}?share=${shareId}`;
+      setGeneratedLink(directCleanUrl);
+      setIsGenerating(false);
+
+      // Background mirror to bytebin for extra redundancy
+      fetch('https://bytebin.lucko.me/post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadToSend)
+      }).catch(() => {});
+      return;
+    }
+
+    // 2. Fallback: post to bytebin
     try {
       const res = await fetch('https://bytebin.lucko.me/post', {
         method: 'POST',
@@ -148,7 +158,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       console.warn('Cloud share store sync note:', err);
     }
 
-    // 2. Fallback: encode compact hash payload into URL if cloud sync is unavailable
+    // 3. Fallback: encode compact hash payload into URL if offline
     let fallbackUrl = `${baseUrl}?share=${shareId}`;
     try {
       const jsonStr = JSON.stringify(payloadToSend);

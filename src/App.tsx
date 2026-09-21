@@ -29,6 +29,11 @@ import {
   exportAsJpg,
   detectFileType,
   idbGetDocuments,
+  fetchShareFromSupabase,
+  fetchUserDocumentsFromSupabase,
+  generateUUID,
+  uploadFileOnline,
+  syncSingleDocumentToSupabase,
   initTrial,
   getTrialStatus,
   getPromoCodes
@@ -92,16 +97,27 @@ export function App() {
     const local = getShares().find((s) => s.id === shareParam);
     if (local) return;
 
-    fetch(`https://bytebin.lucko.me/${shareParam}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Not found in cloud store');
-        return res.json();
-      })
-      .then((data) => {
-        if (data && data.share) {
-          setCloudShareData(data);
-          saveShare(data.share);
+    // 1. First fetch directly from Supabase (fast, reliable, within our own database)
+    fetchShareFromSupabase(shareParam)
+      .then((supabaseData) => {
+        if (supabaseData && supabaseData.share) {
+          setCloudShareData(supabaseData);
+          saveShare(supabaseData.share);
+          return;
         }
+
+        // 2. Fallback to bytebin if not found in Supabase
+        return fetch(`https://bytebin.lucko.me/${shareParam}`)
+          .then((res) => {
+            if (!res.ok) throw new Error('Not found in cloud store');
+            return res.json();
+          })
+          .then((data) => {
+            if (data && data.share) {
+              setCloudShareData(data);
+              saveShare(data.share);
+            }
+          });
       })
       .catch((err) => {
         console.warn('Could not fetch cloud share record:', err);
@@ -168,14 +184,31 @@ export function App() {
     }
   };
 
-  // Hydrate full documents from IndexedDB on startup (unlimited storage quota)
+  // Hydrate full documents from IndexedDB on startup AND fetch from Supabase for logged in account
   useEffect(() => {
     idbGetDocuments().then((idbDocs) => {
       if (idbDocs && idbDocs.length > 0) {
-        setDocuments(idbDocs);
+        setDocuments((prev) => {
+          if (prev.length === 0) return idbDocs;
+          const prevIds = new Set(prev.map((d) => d.id));
+          const newFromIdb = idbDocs.filter((d) => !prevIds.has(d.id));
+          return [...prev, ...newFromIdb];
+        });
       }
     }).catch((err) => console.warn('IndexedDB initial load note:', err));
-  }, []);
+
+    if (user?.id) {
+      fetchUserDocumentsFromSupabase(user.id).then((cloudDocs) => {
+        if (cloudDocs && cloudDocs.length > 0) {
+          setDocuments((prev) => {
+            const prevIds = new Set(prev.map((d) => d.id));
+            const newFromCloud = cloudDocs.filter((d) => !prevIds.has(d.id));
+            return [...prev, ...newFromCloud];
+          });
+        }
+      }).catch((err) => console.warn('Supabase initial documents load note:', err));
+    }
+  }, [user?.id]);
 
   // Sync to localStorage
   useEffect(() => {
@@ -187,8 +220,8 @@ export function App() {
   }, [tabs]);
 
   useEffect(() => {
-    saveDocuments(documents);
-  }, [documents]);
+    saveDocuments(documents, user?.id);
+  }, [documents, user?.id]);
 
   useEffect(() => {
     saveFolders(folders);
@@ -249,8 +282,14 @@ export function App() {
 
   // Documents under the active tab
   const tabDocuments = useMemo(() => {
-    return documents
-      .filter((d) => d.collectionId === activeTab.id)
+    let filtered = documents;
+    if (activeTab.id && activeTab.id !== 'default') {
+      const matchTab = documents.filter((d) => d.collectionId === activeTab.id);
+      if (matchTab.length > 0) {
+        filtered = matchTab;
+      }
+    }
+    return filtered
       .filter((d) => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -311,7 +350,7 @@ export function App() {
     setClients((prev) => [newClient, ...prev]);
     // Also create their first initial case tab
     const initialTab: CollectionTab = {
-      id: 'tab_' + Math.random().toString(36).substring(2, 9),
+      id: generateUUID(),
       clientId: newClient.id,
       name: newClient.cameFor || 'Case Application',
       caseNumber: `${newClient.name.substring(0, 2).toUpperCase()}-2026`,
@@ -346,7 +385,7 @@ export function App() {
   const handleCreateTab = (name: string) => {
     if (!selectedClientId) return;
     const newTab: CollectionTab = {
-      id: 'tab_' + Math.random().toString(36).substring(2, 9),
+      id: generateUUID(),
       clientId: selectedClientId,
       name,
       createdAt: new Date().toISOString(),
@@ -382,14 +421,11 @@ export function App() {
 
     for (const file of fileArray) {
       const fileType = detectFileType(file.name, file.type);
-      const url = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
+      const docId = generateUUID();
+      const { url } = await uploadFileOnline(file, user?.id, docId);
 
-      newItems.push({
-        id: 'doc_' + Math.random().toString(36).substring(2, 9),
+      const item: DocumentItem = {
+        id: docId,
         clientId: selectedClientId || undefined,
         collectionId: activeTab.id,
         name: file.name,
@@ -400,7 +436,11 @@ export function App() {
         status: 'pending',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      });
+      };
+
+      // Sync immediately online!
+      syncSingleDocumentToSupabase(item, user?.id);
+      newItems.push(item);
     }
 
     setDocuments((prev) => [...newItems, ...prev]);
@@ -409,31 +449,42 @@ export function App() {
     }
   };
 
-  const handleSaveMultiPageDoc = (
+  const handleSaveMultiPageDoc = async (
     title: string,
     pages: { name: string; file: File; url: string; fileType: FileType; fileSize: number }[],
     status: DocumentStatus
   ) => {
     if (pages.length === 0) return;
     const primary = pages[0];
-    const formattedPages = pages.map((p, idx) => ({
-      id: 'page_' + Math.random().toString(36).substring(2, 9),
-      name: p.name || `Page ${idx + 1}`,
-      url: p.url,
-      fileType: p.fileType,
-      fileSize: p.fileSize
-    }));
+    const docId = generateUUID();
+
+    const formattedPages = [];
+    for (let idx = 0; idx < pages.length; idx++) {
+      const p = pages[idx];
+      let pUrl = p.url;
+      if (!pUrl || pUrl.startsWith('data:')) {
+        const up = await uploadFileOnline(p.file, user?.id);
+        if (up.url) pUrl = up.url;
+      }
+      formattedPages.push({
+        id: generateUUID(),
+        name: p.name || `Page ${idx + 1}`,
+        url: pUrl,
+        fileType: p.fileType,
+        fileSize: p.fileSize
+      });
+    }
 
     const totalSize = pages.reduce((acc, curr) => acc + curr.fileSize, 0);
 
     const newDoc: DocumentItem = {
-      id: 'doc_' + Math.random().toString(36).substring(2, 9),
+      id: docId,
       clientId: selectedClientId || undefined,
       collectionId: activeTab.id,
       name: title.trim() || primary.file.name,
       fileType: primary.fileType,
       fileSize: totalSize,
-      url: primary.url,
+      url: formattedPages[0]?.url || primary.url,
       hasFile: true,
       status,
       pages: formattedPages,
@@ -441,6 +492,7 @@ export function App() {
       updatedAt: new Date().toISOString()
     };
 
+    syncSingleDocumentToSupabase(newDoc, user?.id);
     setDocuments((prev) => [newDoc, ...prev]);
     setActiveDocId(newDoc.id);
     setMobilePane('viewer');
@@ -448,18 +500,14 @@ export function App() {
 
   const handleAddPageToDoc = async (docId: string, pageName: string, file: File) => {
     const fileType = detectFileType(file.name, file.type);
-    const url = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.readAsDataURL(file);
-    });
+    const { url } = await uploadFileOnline(file, user?.id);
 
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id === docId) {
           const existingPages = doc.pages && doc.pages.length > 0 ? doc.pages : [
             {
-              id: 'page_orig_' + Math.random().toString(36).substring(2, 9),
+              id: generateUUID(),
               name: 'Front Side',
               url: doc.url,
               fileType: doc.fileType,
@@ -467,18 +515,20 @@ export function App() {
             }
           ];
           const newPage = {
-            id: 'page_' + Math.random().toString(36).substring(2, 9),
+            id: generateUUID(),
             name: pageName,
             url,
             fileType,
             fileSize: file.size
           };
-          return {
+          const updatedDoc = {
             ...doc,
             pages: [...existingPages, newPage],
             fileSize: doc.fileSize + file.size,
             updatedAt: new Date().toISOString()
           };
+          syncSingleDocumentToSupabase(updatedDoc, user?.id);
+          return updatedDoc;
         }
         return doc;
       })
@@ -493,11 +543,7 @@ export function App() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const fileType = detectFileType(file.name, file.type);
-        const url = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.readAsDataURL(file);
-        });
+        const { url } = await uploadFileOnline(file, user?.id);
         pages.push({
           name: i === 0 ? 'Front Side' : i === 1 ? 'Back Side' : `Page ${i + 1}`,
           file,
@@ -506,33 +552,31 @@ export function App() {
           fileSize: file.size
         });
       }
-      handleSaveMultiPageDoc(combinedTitle || 'Combined Document', pages, 'pending');
+      await handleSaveMultiPageDoc(combinedTitle || 'Combined Document', pages, 'pending');
     } else {
-      handleUploadFiles(files);
+      await handleUploadFiles(files);
     }
   };
 
   const handleUploadToFileSlot = async (docId: string, file: File) => {
     const fileType = detectFileType(file.name, file.type);
-    const url = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.readAsDataURL(file);
-    });
+    const { url } = await uploadFileOnline(file, user?.id, docId);
 
     setDocuments((prev) =>
       prev.map((doc) => {
         if (doc.id === docId) {
-          return {
+          const updated = {
             ...doc,
             name: doc.name.endsWith(`.${fileType}`) ? doc.name : `${doc.name} (${file.name})`,
             fileType,
             fileSize: file.size,
             url,
             hasFile: true,
-            status: 'pending',
+            status: 'pending' as DocumentStatus,
             updatedAt: new Date().toISOString()
           };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
         }
         return doc;
       })
@@ -543,7 +587,7 @@ export function App() {
   const handleCreateDocumentSlot = (title: string, fileType: FileType) => {
     const formattedName = title.includes('.') ? title : `${title}.${fileType}`;
     const newSlot: DocumentItem = {
-      id: 'doc_req_' + Math.random().toString(36).substring(2, 9),
+      id: generateUUID(),
       clientId: selectedClientId || undefined,
       collectionId: activeTab.id,
       name: formattedName,
@@ -556,6 +600,7 @@ export function App() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    syncSingleDocumentToSupabase(newSlot, user?.id);
     setDocuments((prev) => [newSlot, ...prev]);
   };
 
@@ -563,12 +608,14 @@ export function App() {
     setDocuments((prev) =>
       prev.map((d) => {
         if (d.id === docId) {
-          return {
+          const updated = {
             ...d,
             status,
             notes: notes !== undefined ? notes : d.notes,
             updatedAt: new Date().toISOString()
           };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
         }
         return d;
       })
@@ -579,7 +626,14 @@ export function App() {
     const trimmed = newName.trim();
     if (!trimmed) return;
     setDocuments((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, name: trimmed, updatedAt: new Date().toISOString() } : d))
+      prev.map((d) => {
+        if (d.id === id) {
+          const updated = { ...d, name: trimmed, updatedAt: new Date().toISOString() };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      })
     );
   };
 
@@ -591,7 +645,9 @@ export function App() {
         if (doc.id === docId && doc.pages && doc.pages[pageIndex]) {
           const newPages = [...doc.pages];
           newPages[pageIndex] = { ...newPages[pageIndex], name: trimmed };
-          return { ...doc, pages: newPages, updatedAt: new Date().toISOString() };
+          const updated = { ...doc, pages: newPages, updatedAt: new Date().toISOString() };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
         }
         return doc;
       })
@@ -614,6 +670,47 @@ export function App() {
     );
   };
 
+  const handleUpdateDocumentContent = (docId: string, newContent: string) => {
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (d.id === docId) {
+          const updated = {
+            ...d,
+            content: newContent,
+            hasFile: true,
+            fileSize: new Blob([newContent]).size,
+            updatedAt: new Date().toISOString()
+          };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      })
+    );
+  };
+
+  const handleCreateBlankDoc = (title: string, fileType: FileType = 'docx') => {
+    const formattedName = title.includes('.') ? title : `${title}.${fileType}`;
+    const newDoc: DocumentItem = {
+      id: generateUUID(),
+      clientId: selectedClientId || undefined,
+      collectionId: activeTab.id,
+      name: formattedName,
+      fileType,
+      fileSize: 0,
+      url: '',
+      content: '<p>Start typing or draft your legal document, client statement, or agreement here...</p>',
+      hasFile: true,
+      status: 'pending',
+      uploadedBy: 'solicitor',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    syncSingleDocumentToSupabase(newDoc, user?.id);
+    setDocuments((prev) => [newDoc, ...prev]);
+    setActiveDocId(newDoc.id);
+  };
+
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this document item?')) {
@@ -630,7 +727,7 @@ export function App() {
     const trimmed = name.trim();
     if (!trimmed) return;
     const newFolder: DocumentFolder = {
-      id: 'folder_' + Math.random().toString(36).substring(2, 9),
+      id: generateUUID(),
       collectionId: activeTab.id,
       parentId: parentId || undefined,
       name: trimmed,
@@ -687,14 +784,11 @@ export function App() {
 
     for (const file of fileArray) {
       const fileType = detectFileType(file.name, file.type);
-      const url = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
-      });
+      const docId = generateUUID();
+      const { url } = await uploadFileOnline(file, user?.id, docId);
 
-      newItems.push({
-        id: 'doc_' + Math.random().toString(36).substring(2, 9),
+      const item: DocumentItem = {
+        id: docId,
         clientId: selectedClientId || undefined,
         collectionId: activeTab.id,
         folderId: folderId || undefined,
@@ -706,7 +800,10 @@ export function App() {
         status: 'pending',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      });
+      };
+
+      syncSingleDocumentToSupabase(item, user?.id);
+      newItems.push(item);
     }
 
     setDocuments((prev) => [...newItems, ...prev]);
@@ -793,13 +890,10 @@ export function App() {
         onUploadClientFile={handleUploadToFileSlot}
         onClientUploadNewDoc={async (collectionId, file) => {
           const fileType = detectFileType(file.name, file.type);
-          const url = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target?.result as string);
-            reader.readAsDataURL(file);
-          });
+          const docId = generateUUID();
+          const { url } = await uploadFileOnline(file, shareRecord?.ownerId, docId);
           const newItem: DocumentItem = {
-            id: 'doc_client_' + Math.random().toString(36).substring(2, 9),
+            id: docId,
             name: file.name,
             collectionId,
             fileType,
@@ -811,6 +905,7 @@ export function App() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           };
+          syncSingleDocumentToSupabase(newItem, shareRecord?.ownerId);
           setDocuments((prev) => [newItem, ...prev]);
         }}
         onUpdateStatus={handleUpdateDocumentStatus}
@@ -942,6 +1037,7 @@ export function App() {
                 onMoveDocToFolder={handleMoveDocToFolder}
                 onUploadFilesToFolder={handleUploadFilesToFolder}
                 onReorderDocument={handleReorderDocument}
+                onCreateBlankDoc={handleCreateBlankDoc}
                 tabTitle={activeTab.name}
               />
             </div>
@@ -973,6 +1069,7 @@ export function App() {
                 onRenameDocument={handleRenameDocument}
                 onRenamePage={handleRenamePage}
                 onUpdateDocumentRotation={handleUpdateDocumentRotation}
+                onUpdateDocumentContent={handleUpdateDocumentContent}
                 isReadOnly={false}
               />
             </div>

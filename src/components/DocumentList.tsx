@@ -27,7 +27,8 @@ import {
   ChevronRight,
   Palette,
   GripVertical,
-  CornerDownRight
+  CornerDownRight,
+  Cloud
 } from 'lucide-react';
 import { DocumentItem, FileType, DocumentStatus, DocumentFolder, FolderColor } from '../types';
 
@@ -71,6 +72,7 @@ interface DocumentListProps {
   onMoveDocToFolder?: (docId: string, targetFolderId?: string) => void;
   onUploadFilesToFolder?: (files: FileList | File[], folderId?: string) => void;
   onReorderDocument?: (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => void;
+  onCreateBlankDoc?: (title: string, fileType: FileType) => void;
   tabTitle: string;
 }
 
@@ -99,6 +101,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onMoveDocToFolder,
   onUploadFilesToFolder,
   onReorderDocument,
+  onCreateBlankDoc,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,27 +154,47 @@ export const DocumentList: React.FC<DocumentListProps> = ({
     switch (doc.fileType) {
       case 'pdf':
         return (
-          <div className="w-8 h-8 rounded-lg bg-[#fce8e6] text-[#d93025] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[#fce8e6] text-[#d93025] flex items-center justify-center flex-shrink-0" title="PDF Document">
+            <FileText className="w-4 h-4" />
+          </div>
+        );
+      case 'doc':
+      case 'docx':
+      case 'txt':
+      case 'rtf':
+      case 'md':
+        return (
+          <div className="w-8 h-8 rounded-lg bg-[#e8f0fe] text-[#1a73e8] border border-[#1a73e8]/30 flex items-center justify-center flex-shrink-0" title="Editable Document / Note">
             <FileText className="w-4 h-4" />
           </div>
         );
       case 'png':
       case 'jpg':
       case 'jpeg':
+      case 'webp':
+      case 'gif':
         return (
-          <div className="w-8 h-8 rounded-lg bg-[#e8f0fe] text-[#1a73e8] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[#e8f0fe] text-[#1a73e8] flex items-center justify-center flex-shrink-0" title="Image File">
             <ImageIcon className="w-4 h-4" />
+          </div>
+        );
+      case 'csv':
+      case 'xlsx':
+      case 'pptx':
+        return (
+          <div className="w-8 h-8 rounded-lg bg-[#e6f4ea] text-[#137333] border border-[#137333]/20 flex items-center justify-center flex-shrink-0" title="Data Sheet / Presentation">
+            <File className="w-4 h-4" />
           </div>
         );
       case 'epub':
         return (
-          <div className="w-8 h-8 rounded-lg bg-[#f3e8fd] text-[#9334e6] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[#f3e8fd] text-[#9334e6] flex items-center justify-center flex-shrink-0" title="E-Book">
             <BookOpen className="w-4 h-4" />
           </div>
         );
       default:
         return (
-          <div className="w-8 h-8 rounded-lg bg-[#f1f3f4] text-[#5f6368] flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-[#f1f3f4] text-[#5f6368] flex items-center justify-center flex-shrink-0" title="File">
             <File className="w-4 h-4" />
           </div>
         );
@@ -492,6 +515,12 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           {/* Status label badge */}
           <div className="flex items-center gap-1.5 mt-1 flex-wrap">
             {statusBadge}
+            {doc.url && (doc.url.startsWith('http://') || doc.url.startsWith('https://')) && (
+              <span className="text-[10px] font-medium bg-[#e6f4ea] text-[#137333] px-1.5 py-0.2 rounded border border-[#137333]/20 flex items-center gap-0.5" title="Uploaded & hosted online in cloud">
+                <Cloud className="w-2.5 h-2.5" />
+                Online
+              </span>
+            )}
             {doc.pages && doc.pages.length > 1 && (
               <span className="text-[10px] font-bold bg-[#e8f0fe] text-[#1a73e8] px-1.5 py-0.2 rounded border border-[#1a73e8]/20 flex items-center gap-0.5">
                 <CreditCard className="w-2.5 h-2.5" />
@@ -906,14 +935,12 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
         onChange={handleFileInputChange}
         className="hidden"
       />
       <input
         ref={slotFileInputRef}
         type="file"
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
         onChange={handleSlotFileInputChange}
         className="hidden"
       />
@@ -921,12 +948,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         ref={folderUploadInputRef}
         type="file"
         multiple
-        accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
         onChange={handleFolderUploadChange}
         className="hidden"
       />
 
-      {/* Top Upload, New Folder & Required Slot Buttons */}
+      {/* Top Upload, New Folder, Blank Doc & Required Slot Buttons */}
       <div className="p-3 sm:p-4 border-b border-[#dadce0] space-y-2.5">
         <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
           {/* Upload Button */}
@@ -939,11 +965,28 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               }
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-full font-medium text-xs sm:text-sm shadow hover:shadow-md transition-all"
-            title="Upload documents (supports 2-sided ID card Front & Back and batch files)"
+            title="Upload documents (supports PDF, DOCX, JPG, and any other file type)"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Upload</span>
           </button>
+
+          {/* New Blank Editable Doc / Legal Note Button */}
+          {onCreateBlankDoc && (
+            <button
+              onClick={() => {
+                const docName = prompt('Enter document / legal note title:', 'Legal Statement / Note');
+                if (docName && docName.trim()) {
+                  onCreateBlankDoc(docName.trim(), 'docx');
+                }
+              }}
+              className="flex items-center justify-center gap-1 py-2.5 px-2.5 bg-white hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#1a73e8]/40 rounded-full font-medium text-xs shadow-xs transition-colors"
+              title="Create a new blank editable document / legal note"
+            >
+              <FileText className="w-4 h-4" />
+              <span>+ Doc</span>
+            </button>
+          )}
 
           {/* New Folder Button */}
           {onCreateFolder && (
@@ -954,7 +997,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 setNewFolderColor('blue');
                 setShowCreateFolderModal(true);
               }}
-              className="flex items-center justify-center gap-1 py-2.5 px-3 bg-white hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#1a73e8]/40 rounded-full font-medium text-xs shadow-xs transition-colors"
+              className="flex items-center justify-center gap-1 py-2.5 px-2.5 bg-white hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#1a73e8]/40 rounded-full font-medium text-xs shadow-xs transition-colors"
               title="Create a new folder to organize bills, identity documents, etc."
             >
               <FolderPlus className="w-4 h-4" />
@@ -969,7 +1012,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             title="Add required document slot (Marks RED until uploaded)"
           >
             <FilePlus2 className="w-4 h-4" />
-            <span className="hidden sm:inline">+ Slot</span>
+            <span>+ Slot</span>
           </button>
         </div>
 

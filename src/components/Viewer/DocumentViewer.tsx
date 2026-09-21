@@ -25,13 +25,15 @@ import {
   Plus,
   Edit2,
   Check,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { DocumentItem, DocumentStatus } from '../../types';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { EpubViewer } from './EpubViewer';
 import { TextViewer } from './TextViewer';
+import { DocxEditor } from './DocxEditor';
 
 interface DocumentViewerProps {
   document: DocumentItem | null;
@@ -44,6 +46,7 @@ interface DocumentViewerProps {
   onRenameDocument?: (id: string, newName: string) => void;
   onRenamePage?: (docId: string, pageIndex: number, newPageName: string) => void;
   onUpdateDocumentRotation?: (id: string, rotation: number, pageIndex?: number) => void;
+  onUpdateDocumentContent?: (docId: string, newContent: string) => void;
   isReadOnly?: boolean;
 }
 
@@ -58,6 +61,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onRenameDocument,
   onRenamePage,
   onUpdateDocumentRotation,
+  onUpdateDocumentContent,
   isReadOnly = false
 }) => {
   const [zoom, setZoom] = useState<number>(1.0);
@@ -750,21 +754,41 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               name={`${document.name} - ${activePage.name}`}
               zoom={zoom}
             />
-          ) : activePage.fileType === 'txt' ? (
-            <TextViewer
-              url={activePage.url}
-              name={`${document.name} - ${activePage.name}`}
-              zoom={zoom}
+          ) : ['docx', 'doc', 'txt', 'rtf', 'md'].includes(activePage.fileType) || Boolean(document.content) ? (
+            <DocxEditor
+              document={document}
+              onSaveContent={onUpdateDocumentContent}
+              isReadOnly={isReadOnly}
             />
           ) : (
-            <div className="p-8 text-center bg-white border border-[#dadce0] rounded-2xl shadow-sm max-w-sm">
-              <p className="font-medium text-sm text-[#202124] mb-2">{document.name}</p>
-              <button
-                onClick={() => onExport(document)}
-                className="px-4 py-2 bg-[#1a73e8] text-white text-xs font-medium rounded-lg shadow-sm"
-              >
-                Download File
-              </button>
+            <div className="p-8 text-center bg-white border border-[#dadce0] rounded-3xl shadow-md max-w-md animate-in fade-in duration-150">
+              <div className="w-16 h-16 rounded-2xl bg-[#e8f0fe] text-[#1a73e8] flex items-center justify-center mx-auto mb-4 ring-4 ring-blue-50">
+                <FileText className="w-8 h-8" />
+              </div>
+              <p className="font-bold text-base text-[#202124] mb-1 truncate" title={document.name}>
+                {document.name}
+              </p>
+              <div className="flex items-center justify-center gap-2 mb-4 text-xs text-[#5f6368]">
+                <span className="uppercase font-semibold px-2 py-0.5 bg-[#f1f3f4] rounded text-[10px]">
+                  {document.fileType}
+                </span>
+                {document.fileSize > 0 && (
+                  <span>{Math.round(document.fileSize / 1024)} KB</span>
+                )}
+              </div>
+              <p className="text-xs text-[#5f6368] mb-6 leading-relaxed">
+                This document is safely stored in your vault. You can download or export it to open with your desktop application.
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => onExport(document)}
+                  className="px-5 py-2.5 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-semibold rounded-xl shadow-xs transition-all flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Document</span>
+                </button>
+              </div>
             </div>
           );
         })()}

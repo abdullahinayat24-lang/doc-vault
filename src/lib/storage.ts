@@ -87,12 +87,91 @@ export const getInitialDocuments = (): DocumentItem[] => {
   return []; // Empty by default
 };
 
-export const saveDocuments = (docs: DocumentItem[]) => {
+export const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch {}
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+export const isUUID = (str?: string): boolean => {
+  return Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+};
+
+/**
+ * Uploads a file directly online:
+ * 1. Attempts Supabase Storage bucket 'documents'
+ * 2. Fallback to instant worldwide cloud binary hosting (bytebin)
+ * 3. Fallback to local Data URL
+ */
+export const uploadFileOnline = async (
+  file: File,
+  userId?: string,
+  docId?: string
+): Promise<{ url: string; online: boolean }> => {
+  const safeId = docId || generateUUID();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+  // Strategy 1: Supabase Storage bucket 'documents'
+  if (supabase) {
+    try {
+      const storagePath = userId ? `${userId}/${safeId}_${safeName}` : `public/${safeId}_${safeName}`;
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('documents')
+        .upload(storagePath, file, { cacheControl: '3600', upsert: true });
+
+      if (!uploadErr && uploadData) {
+        const { data: pub } = supabase.storage.from('documents').getPublicUrl(storagePath);
+        if (pub?.publicUrl) {
+          return { url: pub.publicUrl, online: true };
+        }
+      }
+    } catch (e) {
+      console.warn('Supabase storage attempt note:', e);
+    }
+  }
+
+  // Strategy 2: Fast reliable online cloud binary store (Bytebin)
+  try {
+    const res = await fetch('https://bytebin.lucko.me/post', {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream'
+      },
+      body: file
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.key) {
+        const onlineUrl = `https://bytebin.lucko.me/${json.key}`;
+        return { url: onlineUrl, online: true };
+      }
+    }
+  } catch (e) {
+    console.warn('Bytebin online upload fallback note:', e);
+  }
+
+  // Strategy 3: Local Data URL fallback
+  return new Promise<{ url: string; online: boolean }>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve({ url: (e.target?.result as string) || '', online: false });
+    reader.onerror = () => resolve({ url: '', online: false });
+    reader.readAsDataURL(file);
+  });
+};
+
+export const saveDocuments = (docs: DocumentItem[], solicitorId?: string) => {
   // Always persist full documents with unlimited quota to native IndexedDB
   idbSaveDocuments(docs).catch((e) => console.warn('IndexedDB save note:', e));
 
   // Sync to Supabase cloud database
-  syncDocumentsToSupabase(docs).catch((e) => console.warn('Supabase sync note:', e));
+  syncDocumentsToSupabase(docs, solicitorId).catch((e) => console.warn('Supabase sync note:', e));
 
   // Also write to localStorage safely without throwing QuotaExceededError
   try {
@@ -109,24 +188,80 @@ export const saveDocuments = (docs: DocumentItem[]) => {
   }
 };
 
-export const syncDocumentsToSupabase = async (docs: DocumentItem[]) => {
+export const syncSingleDocumentToSupabase = async (doc: DocumentItem, solicitorId?: string): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id;
+
+    const docId = isUUID(doc.id) ? doc.id : generateUUID();
+
+    // Prevent huge base64 payloads from blowing up Supabase HTTP payload limits
+    const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+
+    const payload: any = {
+      id: docId,
+      name: doc.name,
+      file_type: doc.fileType,
+      file_size: doc.fileSize || 0,
+      url: safeUrl || '',
+      content: doc.content || null,
+      has_file: doc.hasFile !== false,
+      status: doc.status || 'pending',
+      notes: doc.notes || ''
+    };
+
+    if (isUUID(resolvedSolicitorId)) {
+      payload.solicitor_id = resolvedSolicitorId;
+    }
+    if (isUUID(doc.collectionId)) {
+      payload.collection_id = doc.collectionId;
+    }
+    if (isUUID(doc.clientId)) {
+      payload.client_id = doc.clientId;
+    }
+
+    const { error } = await supabase.from('documents').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('Supabase single document upsert note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase single document sync note:', err);
+    return false;
+  }
+};
+
+export const syncDocumentsToSupabase = async (docs: DocumentItem[], solicitorId?: string) => {
   if (!supabase) return;
   try {
-    for (const doc of docs.slice(0, 30)) {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id;
+
+    for (const doc of docs.slice(0, 50)) {
+      const docId = isUUID(doc.id) ? doc.id : generateUUID();
+      const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+
       const payload: any = {
+        id: docId,
         name: doc.name,
         file_type: doc.fileType,
         file_size: doc.fileSize || 0,
-        url: doc.url || '',
+        url: safeUrl || '',
+        content: doc.content || null,
         has_file: doc.hasFile !== false,
         status: doc.status || 'pending',
         notes: doc.notes || ''
       };
-      if (doc.collectionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(doc.collectionId)) {
+      if (isUUID(resolvedSolicitorId)) {
+        payload.solicitor_id = resolvedSolicitorId;
+      }
+      if (isUUID(doc.collectionId)) {
         payload.collection_id = doc.collectionId;
       }
-      if (doc.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(doc.id)) {
-        payload.id = doc.id;
+      if (isUUID(doc.clientId)) {
+        payload.client_id = doc.clientId;
       }
       await supabase.from('documents').upsert(payload, { onConflict: 'id' });
     }
@@ -135,43 +270,101 @@ export const syncDocumentsToSupabase = async (docs: DocumentItem[]) => {
   }
 };
 
-export const syncShareToSupabase = async (share: ShareRecord) => {
+export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<DocumentItem[] | null> => {
+  if (!supabase) return null;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedId = userId || authUser?.id;
+
+    let query = supabase.from('documents').select('*');
+    if (isUUID(resolvedId)) {
+      query = query.eq('solicitor_id', resolvedId);
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) return null;
+
+    return data.map((d: any): DocumentItem => ({
+      id: d.id,
+      name: d.name,
+      fileType: d.file_type || 'pdf',
+      fileSize: d.file_size || 0,
+      url: d.url || '',
+      content: d.content || undefined,
+      hasFile: d.has_file !== false,
+      status: d.status || 'pending',
+      notes: d.notes || '',
+      collectionId: d.collection_id || 'default',
+      clientId: d.client_id || undefined,
+      createdAt: d.created_at || new Date().toISOString(),
+      updatedAt: d.updated_at || new Date().toISOString()
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch user documents from Supabase:', err);
+    return null;
+  }
+};
+
+export const syncShareToSupabase = async (
+  share: ShareRecord, 
+  docs?: DocumentItem[], 
+  folders?: DocumentFolder[]
+) => {
   if (!supabase) return;
   try {
-    await supabase.from('shared_links').upsert({
+    const payloadData = share.payload || (docs ? { docs, folders: folders || [] } : undefined);
+    const upsertObj: any = {
       id: share.id,
       title: share.title,
       share_type: share.shareType,
       scope: share.scope,
       target_ids: share.targetIds,
       passcode: share.passcode,
-      allow_client_upload: share.allowClientUpload,
+      allow_client_upload: share.allowClientUpload ?? true,
       created_at: share.createdAt
-    });
+    };
+    if (payloadData) {
+      upsertObj.payload = payloadData;
+    }
+    if (share.ownerId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(share.ownerId)) {
+      upsertObj.solicitor_id = share.ownerId;
+    }
+    await supabase.from('shared_links').upsert(upsertObj);
   } catch (err) {
     console.warn('Supabase share sync note:', err);
   }
 };
 
-export const fetchShareFromSupabase = async (shareId: string): Promise<ShareRecord | null> => {
+export const fetchShareFromSupabase = async (
+  shareId: string
+): Promise<{ share: ShareRecord; docs: DocumentItem[]; folders: DocumentFolder[] } | null> => {
   if (!supabase) return null;
   try {
     const { data, error } = await supabase.from('shared_links').select('*').eq('id', shareId).maybeSingle();
     if (error || !data) return null;
-    return {
+
+    const payloadShare = data.payload?.share || {};
+    const share: ShareRecord = {
       id: data.id,
-      title: data.title,
-      shareType: data.share_type,
-      scope: data.scope,
-      targetIds: data.target_ids || [],
-      passcode: data.passcode,
-      allowClientUpload: data.allow_client_upload,
-      createdAt: data.created_at,
-      ownerId: data.solicitor_id,
-      ownerEmail: '',
-      companyName: 'DocVault Chambers'
+      title: data.title || payloadShare.title || 'Shared Documents',
+      shareType: data.share_type || payloadShare.shareType || 'viewer',
+      scope: data.scope || payloadShare.scope || 'collection',
+      targetIds: data.target_ids || payloadShare.targetIds || [],
+      passcode: data.passcode || payloadShare.passcode || '1234',
+      allowClientUpload: data.allow_client_upload ?? payloadShare.allowClientUpload ?? true,
+      createdAt: data.created_at || payloadShare.createdAt || new Date().toISOString(),
+      ownerId: data.solicitor_id || payloadShare.ownerId || '',
+      ownerEmail: payloadShare.ownerEmail || '',
+      companyName: payloadShare.companyName || 'DocVault Chambers',
+      companyLogo: payloadShare.companyLogo,
+      payload: data.payload
     };
-  } catch {
+
+    const docs: DocumentItem[] = data.payload?.docs || [];
+    const folders: DocumentFolder[] = data.payload?.folders || [];
+    return { share, docs, folders };
+  } catch (err) {
+    console.warn('Failed to fetch share from Supabase:', err);
     return null;
   }
 };
@@ -387,9 +580,22 @@ export const getShareById = (id: string): ShareRecord | null => {
 export const detectFileType = (filename: string, mimeType?: string): FileType => {
   const ext = filename.split('.').pop()?.toLowerCase();
   if (ext === 'pdf' || mimeType?.includes('pdf')) return 'pdf';
-  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext || '')) return ext as FileType;
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'ico'].includes(ext || '')) {
+    if (ext === 'png') return 'png';
+    if (ext === 'jpg' || ext === 'jpeg') return 'jpg';
+    if (ext === 'webp') return 'webp';
+    if (ext === 'gif') return 'gif';
+    return 'png';
+  }
+  if (ext === 'docx') return 'docx';
+  if (ext === 'doc') return 'doc';
+  if (ext === 'rtf') return 'rtf';
   if (ext === 'epub' || mimeType?.includes('epub')) return 'epub';
-  if (ext === 'txt' || mimeType?.includes('text')) return 'txt';
+  if (ext === 'txt' || mimeType?.includes('text/plain')) return 'txt';
+  if (ext === 'md' || mimeType?.includes('markdown')) return 'md';
+  if (ext === 'csv' || mimeType?.includes('csv')) return 'csv';
+  if (ext === 'xlsx' || ext === 'xls') return 'xlsx';
+  if (ext === 'pptx' || ext === 'ppt') return 'pptx';
   return 'other';
 };
 
@@ -441,11 +647,17 @@ export const getRotatedCanvas = (img: HTMLImageElement, rotation: number = 0): H
 };
 
 export const exportSingleDocument = async (doc: DocumentItem) => {
-  if (!doc.hasFile || !doc.url) {
+  if (!doc.hasFile && !doc.content) {
     alert('This is a document requirement placeholder. No file has been uploaded yet.');
     return;
   }
   try {
+    if (doc.content && (!doc.url || doc.fileType === 'txt' || doc.fileType === 'md' || doc.fileType === 'doc' || doc.fileType === 'docx')) {
+      const mime = doc.fileType === 'md' ? 'text/markdown' : (doc.fileType === 'doc' || doc.fileType === 'docx') ? 'text/html' : 'text/plain';
+      const blob = new Blob([doc.content], { type: `${mime};charset=utf-8` });
+      saveAs(blob, doc.name.includes('.') ? doc.name : `${doc.name}.${doc.fileType}`);
+      return;
+    }
     if (doc.rotation && doc.rotation % 360 !== 0 && ['png', 'jpg', 'jpeg', 'webp'].includes(doc.fileType)) {
       const img = await loadImage(doc.url);
       const canvas = getRotatedCanvas(img, doc.rotation);

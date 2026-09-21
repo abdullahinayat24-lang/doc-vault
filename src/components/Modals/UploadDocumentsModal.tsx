@@ -10,7 +10,9 @@ import {
   Plus, 
   Trash2, 
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Loader2,
+  Cloud
 } from 'lucide-react';
 import { DocumentStatus, FileType, DocumentPage } from '../../types';
 import { detectFileType } from '../../lib/storage';
@@ -22,8 +24,8 @@ interface UploadDocumentsModalProps {
     title: string,
     pages: { name: string; file: File; url: string; fileType: FileType; fileSize: number }[],
     status: DocumentStatus
-  ) => void;
-  onBatchUploadFiles: (files: File[], combineIntoOne: boolean, combinedTitle?: string) => void;
+  ) => void | Promise<void>;
+  onBatchUploadFiles: (files: File[], combineIntoOne: boolean, combinedTitle?: string) => void | Promise<void>;
 }
 
 export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
@@ -47,6 +49,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [combineBatch, setCombineBatch] = useState(false);
   const [combinedBatchTitle, setCombinedBatchTitle] = useState('Case Document Bundle');
+  const [isUploading, setIsUploading] = useState(false);
 
   const frontInputRef = useRef<HTMLInputElement>(null);
   const backInputRef = useRef<HTMLInputElement>(null);
@@ -109,7 +112,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
     }
   };
 
-  const handleSaveCard = (e: React.FormEvent) => {
+  const handleSaveCard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!frontFile && !backFile) {
       alert('Please upload at least the Front side or Back side of the document.');
@@ -148,8 +151,13 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
       });
     });
 
-    onSaveMultiPageDoc(cardTitle.trim() || '2-Sided Document', pages, cardStatus);
-    onClose();
+    setIsUploading(true);
+    try {
+      await onSaveMultiPageDoc(cardTitle.trim() || '2-Sided Document', pages, cardStatus);
+      onClose();
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleBatchFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -162,14 +170,20 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
     setBatchFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleSaveBatch = (e: React.FormEvent) => {
+  const handleSaveBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (batchFiles.length === 0) {
       alert('Please select files to upload.');
       return;
     }
-    onBatchUploadFiles(batchFiles, combineBatch, combinedBatchTitle.trim());
-    onClose();
+    setIsUploading(true);
+    try {
+      await onBatchUploadFiles(batchFiles, combineBatch, combinedBatchTitle.trim());
+      setBatchFiles([]);
+      onClose();
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -288,26 +302,34 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                     <input
                       ref={frontInputRef}
                       type="file"
-                      accept=".png,.jpg,.jpeg,.webp,.pdf"
                       onChange={handleFrontSelect}
                       className="hidden"
                     />
 
                     {frontFile ? (
                       <div className="relative rounded-lg overflow-hidden border border-[#dadce0] bg-white group aspect-[16/10] flex items-center justify-center">
-                        {frontFile.fileType === 'pdf' ? (
-                          <div className="p-4 text-center">
-                            <FileText className="w-8 h-8 text-[#d93025] mx-auto mb-1" />
-                            <p className="text-xs font-medium truncate max-w-[180px]">
-                              {frontFile.file.name}
-                            </p>
-                          </div>
-                        ) : (
+                        {['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(frontFile.fileType) ? (
                           <img
                             src={frontFile.url}
                             alt="Front preview"
                             className="w-full h-full object-cover"
                           />
+                        ) : frontFile.fileType === 'pdf' ? (
+                          <div className="p-4 text-center">
+                            <FileText className="w-8 h-8 text-[#d93025] mx-auto mb-1" />
+                            <p className="text-xs font-medium truncate max-w-[180px]">
+                              {frontFile.file.name}
+                            </p>
+                            <span className="text-[9px] uppercase font-bold text-[#d93025] bg-[#fce8e6] px-1.5 py-0.5 rounded">PDF</span>
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center">
+                            <FileText className="w-8 h-8 text-[#1a73e8] mx-auto mb-1" />
+                            <p className="text-xs font-medium truncate max-w-[180px]">
+                              {frontFile.file.name}
+                            </p>
+                            <span className="text-[9px] uppercase font-bold text-[#1a73e8] bg-[#e8f0fe] px-1.5 py-0.5 rounded">{frontFile.fileType}</span>
+                          </div>
                         )}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                           <button
@@ -337,7 +359,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                           Upload Front Side
                         </span>
                         <span className="text-[10px] text-[#5f6368] mt-0.5">
-                          PNG, JPG, PDF (Photo of front)
+                          PDF, DOCX, JPG, PNG, etc.
                         </span>
                       </button>
                     )}
@@ -362,26 +384,34 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                     <input
                       ref={backInputRef}
                       type="file"
-                      accept=".png,.jpg,.jpeg,.webp,.pdf"
                       onChange={handleBackSelect}
                       className="hidden"
                     />
 
                     {backFile ? (
                       <div className="relative rounded-lg overflow-hidden border border-[#dadce0] bg-white group aspect-[16/10] flex items-center justify-center">
-                        {backFile.fileType === 'pdf' ? (
-                          <div className="p-4 text-center">
-                            <FileText className="w-8 h-8 text-[#d93025] mx-auto mb-1" />
-                            <p className="text-xs font-medium truncate max-w-[180px]">
-                              {backFile.file.name}
-                            </p>
-                          </div>
-                        ) : (
+                        {['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(backFile.fileType) ? (
                           <img
                             src={backFile.url}
                             alt="Back preview"
                             className="w-full h-full object-cover"
                           />
+                        ) : backFile.fileType === 'pdf' ? (
+                          <div className="p-4 text-center">
+                            <FileText className="w-8 h-8 text-[#d93025] mx-auto mb-1" />
+                            <p className="text-xs font-medium truncate max-w-[180px]">
+                              {backFile.file.name}
+                            </p>
+                            <span className="text-[9px] uppercase font-bold text-[#d93025] bg-[#fce8e6] px-1.5 py-0.5 rounded">PDF</span>
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center">
+                            <FileText className="w-8 h-8 text-[#1a73e8] mx-auto mb-1" />
+                            <p className="text-xs font-medium truncate max-w-[180px]">
+                              {backFile.file.name}
+                            </p>
+                            <span className="text-[9px] uppercase font-bold text-[#1a73e8] bg-[#e8f0fe] px-1.5 py-0.5 rounded">{backFile.fileType}</span>
+                          </div>
                         )}
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                           <button
@@ -411,7 +441,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                           Upload Back Side
                         </span>
                         <span className="text-[10px] text-[#5f6368] mt-0.5">
-                          PNG, JPG, PDF (Photo of back)
+                          PDF, DOCX, JPG, PNG, etc.
                         </span>
                       </button>
                     )}
@@ -450,7 +480,6 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
               <input
                 ref={extraInputRef}
                 type="file"
-                accept=".png,.jpg,.jpeg,.webp,.pdf"
                 onChange={handleExtraSelect}
                 className="hidden"
               />
@@ -491,10 +520,20 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs sm:text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-xl shadow transition-all flex items-center gap-1.5"
+                  disabled={isUploading}
+                  className="px-5 py-2 text-xs sm:text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] disabled:opacity-50 text-white rounded-xl shadow transition-all flex items-center gap-1.5"
                 >
-                  <span>Save as 1 Combined Document</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Uploading online...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Save as 1 Combined Document</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -504,7 +543,6 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                 ref={batchInputRef}
                 type="file"
                 multiple
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.epub,.txt"
                 onChange={handleBatchFileSelect}
                 className="hidden"
               />
@@ -519,7 +557,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                   Click to select multiple files from your computer
                 </p>
                 <p className="text-xs text-[#5f6368] mt-1">
-                  Supports PDFs, photos (JPG, PNG), text notes, and EPUBs
+                  Supports PDFs, Word docs (DOCX, DOC), photos (JPG, PNG), spreadsheets, and any other file type
                 </p>
               </div>
 
@@ -630,11 +668,21 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={batchFiles.length === 0}
+                  disabled={batchFiles.length === 0 || isUploading}
                   className="px-5 py-2 text-xs sm:text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] disabled:opacity-50 text-white rounded-xl shadow transition-all flex items-center gap-1.5"
                 >
-                  <span>Upload {batchFiles.length} File{batchFiles.length === 1 ? '' : 's'}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Uploading to cloud...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="w-3.5 h-3.5" />
+                      <span>Upload {batchFiles.length} File{batchFiles.length === 1 ? '' : 's'} Online</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
                 </button>
               </div>
             </form>
