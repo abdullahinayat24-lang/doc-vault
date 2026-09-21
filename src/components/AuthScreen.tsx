@@ -30,7 +30,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [companyName, setCompanyName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
-  const [registrationKey, setRegistrationKey] = useState('');
+  const [registrationKey, setRegistrationKey] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('license') || params.get('invite') || params.get('key') || '';
+  });
 
   // Supabase cloud config
   const [showCloudConfig, setShowCloudConfig] = useState(false);

@@ -14,7 +14,8 @@ import {
   Copy,
   Check,
   Plus,
-  Trash2
+  Trash2,
+  Link
 } from 'lucide-react';
 import { SolicitorProfile, InviteKeyRecord } from '../../types';
 import { updateSupabaseCredentials } from '../../lib/supabase';
@@ -45,6 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [inviteKeys, setInviteKeys] = useState<InviteKeyRecord[]>(() => getInviteKeys());
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   
   // Supabase cloud credentials
   const [supabaseUrl, setSupabaseUrl] = useState(
@@ -108,6 +110,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     navigator.clipboard.writeText(keyString);
     setCopiedKeyId(id);
     setTimeout(() => setCopiedKeyId(null), 2000);
+  };
+
+  const handleCopyLink = (id: string, keyString: string) => {
+    const link = `${window.location.origin}${window.location.pathname}?license=${keyString}`;
+    navigator.clipboard.writeText(link);
+    setCopiedLinkId(id);
+    setTimeout(() => setCopiedLinkId(null), 2000);
   };
 
   return (
@@ -497,24 +506,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           {!item.isUsed && (
-                            <button
-                              type="button"
-                              onClick={() => handleCopyKey(item.id, item.key)}
-                              className="px-2.5 py-1 text-[11px] font-bold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] rounded-lg transition-colors flex items-center gap-1"
-                              title="Copy Single-Use Key"
-                            >
-                              {copiedKeyId === item.id ? (
-                                <>
-                                  <Check className="w-3 h-3" />
-                                  <span>Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" />
-                                  <span>Copy</span>
-                                </>
-                              )}
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyKey(item.id, item.key)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] rounded-lg transition-colors flex items-center gap-1"
+                                title="Copy Single-Use Key"
+                              >
+                                {copiedKeyId === item.id ? (
+                                  <>
+                                    <Check className="w-3 h-3" />
+                                    <span>Key Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Key</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleCopyLink(item.id, item.key)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] hover:bg-[#ceead6] rounded-lg transition-colors flex items-center gap-1"
+                                title="Copy Direct Seller Activation Link"
+                              >
+                                {copiedLinkId === item.id ? (
+                                  <>
+                                    <Check className="w-3 h-3" />
+                                    <span>Link Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Link className="w-3 h-3" />
+                                    <span>Invite Link</span>
+                                  </>
+                                )}
+                              </button>
+                            </>
                           )}
                           <button
                             type="button"
