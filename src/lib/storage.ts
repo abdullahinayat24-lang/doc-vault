@@ -305,6 +305,100 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
   }
 };
 
+export const dataUrlToFile = (dataUrl: string, filename: string): File | null => {
+  try {
+    if (!dataUrl || !dataUrl.includes(',')) return null;
+    const arr = dataUrl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  } catch (e) {
+    console.warn('dataUrlToFile parse note:', e);
+    return null;
+  }
+};
+
+/**
+ * Automatically migrates existing local browser-only documents into the online cloud:
+ * 1. Uploads base64 files directly to online cloud storage
+ * 2. Assigns standard UUIDs to records
+ * 3. Syncs each document to Supabase under the logged-in user
+ */
+export const migrateLocalDocumentsToCloud = async (
+  docs: DocumentItem[],
+  userId: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<DocumentItem[]> => {
+  const updatedDocs: DocumentItem[] = [];
+  let count = 0;
+
+  for (const doc of docs) {
+    const docCopy: DocumentItem = { ...doc };
+
+    // Ensure valid UUID
+    if (!isUUID(docCopy.id)) {
+      docCopy.id = generateUUID();
+    }
+
+    // If doc has local base64, upload it to cloud storage
+    if (docCopy.url && docCopy.url.startsWith('data:')) {
+      const file = dataUrlToFile(docCopy.url, docCopy.name);
+      if (file) {
+        try {
+          const { url, online } = await uploadFileOnline(file, userId, docCopy.id);
+          if (online && url) {
+            docCopy.url = url;
+          }
+        } catch (e) {
+          console.warn('Migrate doc online upload note:', e);
+        }
+      }
+    }
+
+    // If doc has pages with local base64, upload each page
+    if (docCopy.pages && docCopy.pages.length > 0) {
+      const newPages = [];
+      for (const page of docCopy.pages) {
+        const pCopy = { ...page };
+        if (!isUUID(pCopy.id)) {
+          pCopy.id = generateUUID();
+        }
+        if (pCopy.url && pCopy.url.startsWith('data:')) {
+          const pFile = dataUrlToFile(pCopy.url, pCopy.name || `${docCopy.name}_page`);
+          if (pFile) {
+            try {
+              const { url, online } = await uploadFileOnline(pFile, userId, pCopy.id);
+              if (online && url) {
+                pCopy.url = url;
+              }
+            } catch (e) {
+              console.warn('Migrate page online upload note:', e);
+            }
+          }
+        }
+        newPages.push(pCopy);
+      }
+      docCopy.pages = newPages;
+    }
+
+    // Sync to Supabase cloud
+    await syncSingleDocumentToSupabase(docCopy, userId);
+    updatedDocs.push(docCopy);
+    count++;
+    if (onProgress) onProgress(count, docs.length);
+  }
+
+  // Update native IndexedDB cache with clean online URLs
+  idbSaveDocuments(updatedDocs).catch(() => {});
+  return updatedDocs;
+};
+
 export const syncShareToSupabase = async (
   share: ShareRecord, 
   docs?: DocumentItem[], 

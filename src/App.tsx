@@ -34,6 +34,7 @@ import {
   generateUUID,
   uploadFileOnline,
   syncSingleDocumentToSupabase,
+  migrateLocalDocumentsToCloud,
   initTrial,
   getTrialStatus,
   getPromoCodes
@@ -184,16 +185,25 @@ export function App() {
     }
   };
 
-  // Hydrate full documents from IndexedDB on startup AND fetch from Supabase for logged in account
+  // Hydrate full documents from IndexedDB on startup, auto-migrate local files to cloud, and fetch from Supabase
   useEffect(() => {
-    idbGetDocuments().then((idbDocs) => {
+    idbGetDocuments().then(async (idbDocs) => {
       if (idbDocs && idbDocs.length > 0) {
-        setDocuments((prev) => {
-          if (prev.length === 0) return idbDocs;
-          const prevIds = new Set(prev.map((d) => d.id));
-          const newFromIdb = idbDocs.filter((d) => !prevIds.has(d.id));
-          return [...prev, ...newFromIdb];
-        });
+        if (user?.id) {
+          const migrated = await migrateLocalDocumentsToCloud(idbDocs, user.id);
+          setDocuments((prev) => {
+            const map = new Map(prev.map((d) => [d.id, d]));
+            migrated.forEach((d) => map.set(d.id, d));
+            return Array.from(map.values());
+          });
+        } else {
+          setDocuments((prev) => {
+            if (prev.length === 0) return idbDocs;
+            const prevIds = new Set(prev.map((d) => d.id));
+            const newFromIdb = idbDocs.filter((d) => !prevIds.has(d.id));
+            return [...prev, ...newFromIdb];
+          });
+        }
       }
     }).catch((err) => console.warn('IndexedDB initial load note:', err));
 
@@ -845,6 +855,21 @@ export function App() {
     });
   };
 
+  const handleSyncLocalDocs = async () => {
+    if (!user?.id) {
+      alert('Please sign in to sync documents directly to your cloud account.');
+      return;
+    }
+    const unsynced = documents.filter((d) => d.url && d.url.startsWith('data:'));
+    if (unsynced.length === 0) {
+      alert('All documents are already synced to the online cloud!');
+      return;
+    }
+    const migrated = await migrateLocalDocumentsToCloud(documents, user.id);
+    setDocuments(migrated);
+    alert(`Successfully synced ${unsynced.length} local document(s) directly online to the cloud!`);
+  };
+
   // If viewing a shared link (?share=...)
   if (shareParam) {
     if (isLoadingCloudShare) {
@@ -1038,6 +1063,7 @@ export function App() {
                 onUploadFilesToFolder={handleUploadFilesToFolder}
                 onReorderDocument={handleReorderDocument}
                 onCreateBlankDoc={handleCreateBlankDoc}
+                onSyncLocalDocs={handleSyncLocalDocs}
                 tabTitle={activeTab.name}
               />
             </div>

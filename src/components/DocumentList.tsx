@@ -73,6 +73,7 @@ interface DocumentListProps {
   onUploadFilesToFolder?: (files: FileList | File[], folderId?: string) => void;
   onReorderDocument?: (sourceDocId: string, targetDocId: string, position: 'before' | 'after') => void;
   onCreateBlankDoc?: (title: string, fileType: FileType) => void;
+  onSyncLocalDocs?: () => void;
   tabTitle: string;
 }
 
@@ -102,6 +103,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onUploadFilesToFolder,
   onReorderDocument,
   onCreateBlankDoc,
+  onSyncLocalDocs,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1015,6 +1017,25 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             <span>+ Slot</span>
           </button>
         </div>
+
+        {/* Local Documents Cloud Sync Banner */}
+        {onSyncLocalDocs && documents.some(d => d.url && d.url.startsWith('data:')) && (
+          <div className="bg-[#fef7e0] border border-[#f9ab00]/40 rounded-xl p-2.5 flex items-center justify-between gap-2 text-xs animate-in fade-in">
+            <div className="flex items-center gap-1.5 text-[#b06000]">
+              <Cloud className="w-4 h-4 text-[#e37400] flex-shrink-0" />
+              <span>
+                <strong>{documents.filter(d => d.url && d.url.startsWith('data:')).length}</strong> existing local document(s) detected.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onSyncLocalDocs}
+              className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-medium rounded-lg text-[11px] shadow-xs flex-shrink-0 transition-colors"
+            >
+              Sync to Cloud
+            </button>
+          </div>
+        )}
 
         {/* Status Filter Pills */}
         <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1 text-[11px]">
