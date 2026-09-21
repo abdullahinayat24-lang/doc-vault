@@ -91,6 +91,9 @@ export const saveDocuments = (docs: DocumentItem[]) => {
   // Always persist full documents with unlimited quota to native IndexedDB
   idbSaveDocuments(docs).catch((e) => console.warn('IndexedDB save note:', e));
 
+  // Sync to Supabase cloud database
+  syncDocumentsToSupabase(docs).catch((e) => console.warn('Supabase sync note:', e));
+
   // Also write to localStorage safely without throwing QuotaExceededError
   try {
     localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
@@ -103,6 +106,73 @@ export const saveDocuments = (docs: DocumentItem[]) => {
       }));
       localStorage.setItem(DOCS_KEY, JSON.stringify(lightweightDocs));
     } catch {}
+  }
+};
+
+export const syncDocumentsToSupabase = async (docs: DocumentItem[]) => {
+  if (!supabase) return;
+  try {
+    for (const doc of docs.slice(0, 30)) {
+      const payload: any = {
+        name: doc.name,
+        file_type: doc.fileType,
+        file_size: doc.fileSize || 0,
+        url: doc.url || '',
+        has_file: doc.hasFile !== false,
+        status: doc.status || 'pending',
+        notes: doc.notes || ''
+      };
+      if (doc.collectionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(doc.collectionId)) {
+        payload.collection_id = doc.collectionId;
+      }
+      if (doc.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(doc.id)) {
+        payload.id = doc.id;
+      }
+      await supabase.from('documents').upsert(payload, { onConflict: 'id' });
+    }
+  } catch (err) {
+    console.warn('Supabase document sync note:', err);
+  }
+};
+
+export const syncShareToSupabase = async (share: ShareRecord) => {
+  if (!supabase) return;
+  try {
+    await supabase.from('shared_links').upsert({
+      id: share.id,
+      title: share.title,
+      share_type: share.shareType,
+      scope: share.scope,
+      target_ids: share.targetIds,
+      passcode: share.passcode,
+      allow_client_upload: share.allowClientUpload,
+      created_at: share.createdAt
+    });
+  } catch (err) {
+    console.warn('Supabase share sync note:', err);
+  }
+};
+
+export const fetchShareFromSupabase = async (shareId: string): Promise<ShareRecord | null> => {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from('shared_links').select('*').eq('id', shareId).maybeSingle();
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      title: data.title,
+      shareType: data.share_type,
+      scope: data.scope,
+      targetIds: data.target_ids || [],
+      passcode: data.passcode,
+      allowClientUpload: data.allow_client_upload,
+      createdAt: data.created_at,
+      ownerId: data.solicitor_id,
+      ownerEmail: '',
+      companyName: 'DocVault Chambers'
+    };
+  } catch {
+    return null;
   }
 };
 
@@ -306,6 +376,7 @@ export const saveShare = (share: ShareRecord) => {
     shares.push(share);
   }
   localStorage.setItem(SHARES_KEY, JSON.stringify(shares));
+  syncShareToSupabase(share).catch(() => {});
 };
 
 export const getShareById = (id: string): ShareRecord | null => {

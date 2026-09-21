@@ -766,12 +766,29 @@ export function App() {
 
     // Prefer embedded URL payload (works cross-device), then cloud store, then localStorage
     const shareRecord = sharedPayload?.share || cloudShareData?.share || (getShares().find((s) => s.id === shareParam) ?? null);
-    const sharedDocs = sharedPayload?.docs || cloudShareData?.docs || documents;
+    const rawDocs = sharedPayload?.docs || cloudShareData?.docs || documents;
+    const rawFolders = (sharedPayload as any)?.folders || (cloudShareData as any)?.folders || folders;
+
+    // Merge document content so local file data is never missing or blank
+    const sharedDocs = rawDocs.map((sd) => {
+      if (!sd.url) {
+        const localMatch = documents.find((d) => d.id === sd.id || d.name === sd.name);
+        if (localMatch && localMatch.url) {
+          return {
+            ...sd,
+            url: localMatch.url,
+            pages: (localMatch.pages && localMatch.pages.length > 0) ? localMatch.pages : sd.pages
+          };
+        }
+      }
+      return sd;
+    });
 
     return (
       <SharedViewer
         shareRecord={shareRecord}
         documents={sharedDocs}
+        folders={rawFolders}
         tabs={tabs}
         onUploadClientFile={handleUploadToFileSlot}
         onClientUploadNewDoc={async (collectionId, file) => {
@@ -970,6 +987,7 @@ export function App() {
         currentDocument={activeDoc}
         selectedDocuments={selectedDocuments}
         allTabDocuments={tabDocuments}
+        allTabFolders={tabFolders}
         currentTab={activeTab}
         onSaveShare={(share) => saveShare(share)}
         user={user}

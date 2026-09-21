@@ -13,7 +13,7 @@ import {
   Eye,
   CheckCircle2
 } from 'lucide-react';
-import { DocumentItem, CollectionTab, ShareScope, ShareRecord, SolicitorProfile, ShareType } from '../../types';
+import { DocumentItem, CollectionTab, ShareScope, ShareRecord, SolicitorProfile, ShareType, DocumentFolder } from '../../types';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -21,6 +21,7 @@ interface ShareModalProps {
   currentDocument: DocumentItem | null;
   selectedDocuments: DocumentItem[];
   allTabDocuments?: DocumentItem[];
+  allTabFolders?: DocumentFolder[];
   currentTab: CollectionTab;
   onSaveShare: (share: ShareRecord) => void;
   user: SolicitorProfile;
@@ -32,6 +33,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   currentDocument,
   selectedDocuments,
   allTabDocuments = [],
+  allTabFolders = [],
   currentTab,
   onSaveShare,
   user
@@ -90,7 +92,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
     onSaveShare(newRecord);
 
-    // Prepare lightweight payload documents so the client portal works on any device/browser
+    // Prepare payload documents preserving folder IDs and content
     const payloadDocs = targetDocs.map((d) => ({
       id: d.id,
       name: d.name,
@@ -102,10 +104,25 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       notes: d.notes,
       description: d.description,
       rotation: d.rotation || 0,
-      url: (d.url && (d.url.startsWith('http://') || d.url.startsWith('https://')) && d.url.length < 500) ? d.url : ''
+      folderId: d.folderId,
+      url: d.url || '',
+      pages: d.pages || []
     }));
 
-    const payload = { share: newRecord, docs: payloadDocs };
+    const targetFolders = allTabFolders && allTabFolders.length > 0 ? allTabFolders : [];
+    let payloadToSend = { share: newRecord, docs: payloadDocs, folders: targetFolders };
+
+    // If total payload exceeds 4MB, optimize document binaries to fit bytebin comfortably
+    try {
+      if (JSON.stringify(payloadToSend).length > 4000000) {
+        const optimizedDocs = payloadDocs.map((d, i) => ({
+          ...d,
+          url: i < 15 ? d.url : ''
+        }));
+        payloadToSend = { share: newRecord, docs: optimizedDocs, folders: targetFolders };
+      }
+    } catch {}
+
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
 
     // 1. Post to high-reliability cloud share store so ANY device / phone can load it instantly
@@ -113,7 +130,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       const res = await fetch('https://bytebin.lucko.me/post', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payloadToSend)
       });
       if (res.ok) {
         const data = await res.json();
@@ -134,7 +151,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     // 2. Fallback: encode compact hash payload into URL if cloud sync is unavailable
     let fallbackUrl = `${baseUrl}?share=${shareId}`;
     try {
-      const jsonStr = JSON.stringify(payload);
+      const jsonStr = JSON.stringify(payloadToSend);
       const encodedData = btoa(encodeURIComponent(jsonStr));
       fallbackUrl = `${baseUrl}?share=${shareId}#data=${encodedData}`;
     } catch (e) {

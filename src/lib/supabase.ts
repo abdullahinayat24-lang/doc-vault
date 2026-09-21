@@ -1,19 +1,32 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Read from Vite environment variables or dynamic localStorage settings
-const meta = import.meta as any;
-const envUrl = meta.env?.VITE_SUPABASE_URL || localStorage.getItem('docvault_supabase_url') || '';
-const envKey = meta.env?.VITE_SUPABASE_ANON_KEY || localStorage.getItem('docvault_supabase_key') || '';
+const DEFAULT_SUPABASE_URL = 'https://eccdphuupctvdayyenhl.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'sb_publishable_8JlfIOAaxD_ePc0yoG7qYA_wC5QkNWq';
+
+const envUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string) ||
+  localStorage.getItem('docvault_supabase_url') ||
+  DEFAULT_SUPABASE_URL;
+
+const envKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
+  localStorage.getItem('docvault_supabase_key') ||
+  DEFAULT_SUPABASE_KEY;
 
 export let supabase: SupabaseClient | null = null;
 
-if (envUrl && envKey) {
-  try {
-    supabase = createClient(envUrl, envKey);
-  } catch (err) {
-    console.warn('Failed to initialize Supabase client:', err);
-    supabase = null;
+try {
+  if (envUrl && envKey) {
+    supabase = createClient(envUrl, envKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    });
   }
+} catch (err) {
+  console.warn('Failed to initialize Supabase client:', err);
+  supabase = null;
 }
 
 export const isSupabaseConfigured = (): boolean => {

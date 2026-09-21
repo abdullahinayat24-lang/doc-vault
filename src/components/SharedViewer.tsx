@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { 
   Lock, 
   Key, 
@@ -16,15 +16,24 @@ import {
   FileCheck,
   Plus,
   RefreshCw,
-  Clock
+  Clock,
+  Folder,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  Image as ImageIcon,
+  BookOpen,
+  File
 } from 'lucide-react';
-import { ShareRecord, DocumentItem, CollectionTab, DocumentStatus, FileType } from '../types';
+import { ShareRecord, DocumentItem, CollectionTab, DocumentStatus, FileType, DocumentFolder } from '../types';
 import { DocumentViewer } from './Viewer/DocumentViewer';
 import { exportSingleDocument, exportMultipleDocuments, exportAsPdf, exportAsJpg, detectFileType } from '../lib/storage';
+import { getFolderColorStyle } from './DocumentList';
 
 interface SharedViewerProps {
   shareRecord: ShareRecord | null;
   documents: DocumentItem[];
+  folders?: DocumentFolder[];
   tabs: CollectionTab[];
   onUploadClientFile?: (docId: string, file: File) => void;
   onClientUploadNewDoc?: (collectionId: string, file: File) => void;
@@ -35,6 +44,7 @@ interface SharedViewerProps {
 export const SharedViewer: React.FC<SharedViewerProps> = ({
   shareRecord,
   documents,
+  folders = [],
   tabs,
   onUploadClientFile,
   onClientUploadNewDoc,
@@ -50,6 +60,8 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
   const slotUploadRef = useRef<HTMLInputElement>(null);
   const additionalUploadRef = useRef<HTMLInputElement>(null);
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
 
   if (!shareRecord) {
     return (
@@ -87,6 +99,83 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
     }
     return filtered.length > 0 ? filtered : documents;
   }, [shareRecord, documents]);
+
+  const toggleFolderCollapse = (folderId: string) => {
+    setCollapsedFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
+  };
+
+  const filteredDocuments = useMemo(() => {
+    if (!searchQuery.trim()) return allowedDocuments;
+    const q = searchQuery.toLowerCase();
+    return allowedDocuments.filter(
+      (d) =>
+        d.name.toLowerCase().includes(q) ||
+        d.fileType.toLowerCase().includes(q) ||
+        (d.notes && d.notes.toLowerCase().includes(q))
+    );
+  }, [allowedDocuments, searchQuery]);
+
+  const relevantFolders = useMemo(() => {
+    if (!folders || folders.length === 0) return [];
+    if (shareRecord && shareRecord.scope === 'collection') {
+      const tabId = shareRecord.targetIds[0];
+      return folders.filter((f) => f.collectionId === tabId || !f.collectionId);
+    }
+    const activeFolderIds = new Set(allowedDocuments.map((d) => d.folderId).filter(Boolean));
+    return folders.filter((f) => activeFolderIds.has(f.id));
+  }, [folders, shareRecord, allowedDocuments]);
+
+  const getDocIcon = (fileType: string) => {
+    switch (fileType) {
+      case 'pdf': return <FileText className="w-3.5 h-3.5 text-[#d93025]" />;
+      case 'png': case 'jpg': case 'jpeg': return <ImageIcon className="w-3.5 h-3.5 text-[#1a73e8]" />;
+      case 'epub': return <BookOpen className="w-3.5 h-3.5 text-[#9334e6]" />;
+      default: return <File className="w-3.5 h-3.5 text-[#5f6368]" />;
+    }
+  };
+
+  const renderDocCard = (doc: DocumentItem, indent = 0) => {
+    const isActive = activeDoc?.id === doc.id;
+    let cardStyle = '';
+    let badge = null;
+    if (doc.status === 'missing' || doc.status === 'disapproved') {
+      cardStyle = 'bg-[#fce8e6]/80 border-l-4 border-l-[#ea4335] text-[#d93025]';
+      badge = <span className="text-[9px] font-bold uppercase bg-[#d93025] text-white px-1.5 py-0.5 rounded">Missing</span>;
+    } else if (doc.status === 'approved') {
+      cardStyle = 'bg-[#e6f4ea]/80 border-l-4 border-l-[#34a853] text-[#137333]';
+      badge = <span className="text-[9px] font-bold uppercase bg-[#137333] text-white px-1.5 py-0.5 rounded">Approved</span>;
+    } else {
+      cardStyle = isActive
+        ? 'bg-[#e8f0fe] border-l-4 border-l-[#1a73e8]'
+        : 'bg-white hover:bg-[#f8fafd] border-l-4 border-l-transparent';
+      badge = <span className="text-[9px] font-medium bg-[#f1f3f4] text-[#5f6368] px-1.5 py-0.5 rounded">Uploaded</span>;
+    }
+    return (
+      <div
+        key={doc.id}
+        onClick={() => { if (doc.hasFile) setActiveDoc(doc); }}
+        style={{ paddingLeft: `${indent * 12 + 12}px` }}
+        className={`py-2 pr-3 text-left transition-all cursor-pointer border-b border-[#f1f3f4] ${cardStyle}`}
+      >
+        <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+            {getDocIcon(doc.fileType)}
+            <p className="text-xs font-semibold truncate leading-tight text-[#202124]" title={doc.name}>{doc.name}</p>
+          </div>
+          {badge}
+        </div>
+        {!doc.hasFile && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setTargetSlotId(doc.id); slotUploadRef.current?.click(); }}
+            className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 bg-[#d93025] text-white text-[10px] font-bold rounded"
+          >
+            <Upload className="w-2.5 h-2.5" />
+            <span>Upload Now</span>
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -510,73 +599,90 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
       ) : (
         /* DOCUMENT VIEWER MODE */
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
-          {/* Left document list: hidden on mobile phones when inspecting a document */}
-          <aside className="hidden md:flex w-80 bg-white border-r border-[#dadce0] flex-col h-full overflow-y-auto divide-y divide-[#f1f3f4] flex-shrink-0">
-            <div className="p-3 bg-[#f8fafd] border-b border-[#dadce0] text-xs font-semibold text-[#5f6368] uppercase tracking-wider flex items-center justify-between">
-              <span>Client Documents ({allowedDocuments.length})</span>
+          {/* Left sidebar: folder tree + search */}
+          <aside className="hidden md:flex w-80 bg-white border-r border-[#dadce0] flex-col h-full overflow-y-auto flex-shrink-0">
+            {/* Search header */}
+            <div className="p-3 bg-[#f8fafd] border-b border-[#dadce0] flex flex-col gap-2 sticky top-0 z-10 shadow-2xs">
+              <div className="flex items-center justify-between text-xs font-bold text-[#5f6368] uppercase tracking-wider">
+                <span>Documents ({filteredDocuments.length})</span>
+                {relevantFolders.length > 0 && (
+                  <span className="text-[10px] font-semibold text-[#1a73e8] bg-[#e8f0fe] px-2 py-0.5 rounded-full">
+                    {relevantFolders.length} Folders
+                  </span>
+                )}
+              </div>
+              <div className="relative flex items-center">
+                <Search className="w-3.5 h-3.5 text-[#5f6368] absolute left-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter documents..."
+                  className="w-full pl-8 pr-2.5 py-1.5 text-xs border border-[#dadce0] rounded-lg bg-white focus:outline-none focus:border-[#1a73e8] transition-colors"
+                />
+              </div>
             </div>
 
-            {allowedDocuments.map((doc) => {
-              const isActive = activeDoc?.id === doc.id;
-              let cardStyle = 'bg-white hover:bg-[#f8fafd]';
-              let badge = null;
-
-              if (doc.status === 'missing' || doc.status === 'disapproved') {
-                cardStyle = 'bg-[#fce8e6]/80 border-l-4 border-l-[#ea4335] text-[#d93025]';
-                badge = (
-                  <span className="text-[9px] font-bold uppercase bg-[#d93025] text-white px-1.5 py-0.2 rounded">
-                    Missing
-                  </span>
-                );
-              } else if (doc.status === 'approved') {
-                cardStyle = 'bg-[#e6f4ea]/80 border-l-4 border-l-[#34a853] text-[#137333]';
-                badge = (
-                  <span className="text-[9px] font-bold uppercase bg-[#137333] text-white px-1.5 py-0.2 rounded">
-                    Approved
-                  </span>
-                );
-              } else {
-                cardStyle = isActive ? 'bg-[#e8f0fe] border-l-4 border-l-[#1a73e8]' : 'bg-white hover:bg-[#f8fafd] border-l-4 border-l-transparent';
-                badge = (
-                  <span className="text-[9px] font-medium bg-[#f1f3f4] text-[#5f6368] px-1.5 py-0.2 rounded">
-                    Uploaded
-                  </span>
-                );
-              }
-
-              return (
-                <div
-                  key={doc.id}
-                  onClick={() => {
-                    if (doc.hasFile) {
-                      setActiveDoc(doc);
-                    }
-                  }}
-                  className={`p-3 text-left transition-all cursor-pointer ${cardStyle}`}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <p className="text-xs font-semibold truncate leading-tight text-[#202124]">
-                      {doc.name}
-                    </p>
-                    {badge}
-                  </div>
-
-                  {!doc.hasFile && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTargetSlotId(doc.id);
-                        slotUploadRef.current?.click();
-                      }}
-                      className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 bg-[#d93025] text-white text-[10px] font-bold rounded"
-                    >
-                      <Upload className="w-2.5 h-2.5" />
-                      <span>Upload Now</span>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            {/* Folder tree / flat list */}
+            <div className="flex-1 overflow-y-auto">
+              {relevantFolders.length > 0 ? (
+                <>
+                  {relevantFolders.map((folder) => {
+                    const isCollapsed = !!collapsedFolders[folder.id];
+                    const colorStyle = getFolderColorStyle(folder.color);
+                    const folderDocs = filteredDocuments.filter((d) => d.folderId === folder.id);
+                    return (
+                      <div key={folder.id} className="border-b border-[#dadce0]">
+                        <div
+                          onClick={() => toggleFolderCollapse(folder.id)}
+                          className="flex items-center justify-between gap-1.5 py-2 px-3 bg-[#f8fafd] hover:bg-[#f1f3f4] cursor-pointer transition-colors select-none"
+                        >
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            {isCollapsed
+                              ? <ChevronRight className="w-3.5 h-3.5 text-[#5f6368] flex-shrink-0" />
+                              : <ChevronDown className="w-3.5 h-3.5 text-[#5f6368] flex-shrink-0" />}
+                            <div
+                              className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                              style={{ backgroundColor: colorStyle.bg, color: colorStyle.text }}
+                            >
+                              <Folder className="w-3 h-3 fill-current" />
+                            </div>
+                            <span className="text-xs font-bold text-[#202124] truncate">{folder.name}</span>
+                          </div>
+                          <span className="text-[10px] font-semibold text-[#5f6368] bg-white px-1.5 py-0.5 rounded border border-[#dadce0] flex-shrink-0">
+                            {folderDocs.length}
+                          </span>
+                        </div>
+                        {!isCollapsed && (
+                          <div>
+                            {folderDocs.length === 0
+                              ? <div className="px-3 py-2 text-[11px] text-[#5f6368] italic">Empty folder</div>
+                              : folderDocs.map((doc) => renderDocCard(doc, 1))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Root-level docs (no folder) */}
+                  {(() => {
+                    const rootDocs = filteredDocuments.filter(
+                      (d) => !d.folderId || !relevantFolders.some((f) => f.id === d.folderId)
+                    );
+                    if (rootDocs.length === 0) return null;
+                    return (
+                      <div>
+                        <div className="px-3 py-1.5 bg-[#f8fafd] border-b border-[#dadce0] text-[10px] font-bold uppercase tracking-wider text-[#5f6368]">
+                          Case Files ({rootDocs.length})
+                        </div>
+                        {rootDocs.map((doc) => renderDocCard(doc, 0))}
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : (
+                filteredDocuments.map((doc) => renderDocCard(doc, 0))
+              )}
+            </div>
           </aside>
 
           {/* Master Viewer Canvas */}
