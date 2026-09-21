@@ -174,17 +174,27 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
+    // Only show the upload overlay for external files from the OS/Desktop.
+    // When dragging an existing document card (text/doc-id), do NOT show the overlay
+    // so the user can drop it onto a specific folder target instead.
+    const isExternalFile = e.dataTransfer.types.includes('Files');
+    if (isExternalFile) {
+      setIsDragging(true);
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(false);
+    // Only hide if the pointer actually left the aside (not just moved between child elements)
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    // Only handle OS-level file drops here (not internal doc card drags)
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onUploadFiles(e.dataTransfer.files);
     }
@@ -842,7 +852,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
   return (
     <aside 
-      className={`w-84 lg:w-96 bg-white border-r border-[#dadce0] flex flex-col h-[calc(100vh-7.5rem)] flex-shrink-0 transition-colors relative select-none ${
+      className={`w-full h-full bg-white flex flex-col min-h-0 overflow-hidden flex-shrink-0 transition-colors relative select-none ${
         isDragging ? 'bg-[#e8f0fe]/40 ring-2 ring-[#1a73e8] ring-inset' : ''
       }`}
       onDragOver={handleDragOver}
@@ -1139,7 +1149,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       )}
 
       {/* Document Items List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-[#f1f3f4]">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain divide-y divide-[#f1f3f4]">
         {filteredDocuments.length === 0 && rootFolders.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center p-6 text-center text-[#5f6368]">
             <div className="w-12 h-12 rounded-full bg-[#f1f3f4] flex items-center justify-center mb-3">

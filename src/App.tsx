@@ -696,7 +696,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35]">
+    <div className="h-screen w-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35] overflow-hidden">
       {/* Top Header */}
       <Header
         user={user}
@@ -765,7 +765,7 @@ export function App() {
           {/* Document Workspace */}
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
             {/* Left Documents List */}
-            <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden`}>
+            <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden flex-shrink-0`}>
               <DocumentList
                 documents={tabDocuments}
                 folders={tabFolders}

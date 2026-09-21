@@ -156,7 +156,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   return (
     <div
       ref={viewerContainerRef}
-      className="flex-1 flex flex-col h-[calc(100vh-7.5rem)] bg-[#f8fafd] overflow-hidden relative"
+      className="flex-1 flex flex-col h-full w-full min-h-0 bg-[#f8fafd] overflow-hidden relative"
     >
       {/* Top Document Status Alert Banner */}
       {document.status === 'approved' ? (
@@ -590,10 +590,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       )}
 
       {/* Main View Area */}
-      <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
+      <div className="flex-1 w-full h-full min-h-0 relative overflow-hidden flex items-center justify-center">
         {/* Continuous Scroll View Layout */}
         {viewLayout === 'scroll' && document.pages && document.pages.length > 0 ? (
-          <div className="flex-1 w-full h-full p-4 overflow-y-auto space-y-6 flex flex-col items-center">
+          <div className="flex-1 w-full h-full min-h-0 p-4 overflow-y-auto overscroll-contain space-y-6 flex flex-col items-center">
             {document.pages.map((page, idx) => {
               const pageRotation = page.rotation !== undefined ? page.rotation : (document.rotation || 0);
               return (
@@ -656,7 +656,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             })}
           </div>
         ) : viewLayout === 'side-by-side' && document.pages && document.pages.length >= 2 ? (
-          <div className="flex-1 w-full h-full p-4 overflow-y-auto">
+          <div className="flex-1 w-full h-full min-h-0 p-4 overflow-y-auto overscroll-contain">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-[450px]">
               {document.pages.slice(0, 2).map((page, idx) => (
                 <div
@@ -674,15 +674,26 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
                   </div>
                   <div className="flex-1 p-3 bg-[#f8fafd] flex items-center justify-center overflow-hidden">
                     {page.fileType === 'pdf' ? (
-                      <iframe
-                        src={`${page.url}#toolbar=0`}
-                        title={page.name}
-                        className="w-full h-full border-0 rounded-lg"
-                      />
+                      <div className="w-full h-full min-h-[400px]">
+                        <PdfViewer
+                          url={page.url}
+                          name={page.name}
+                          zoom={0.85}
+                          rotation={page.rotation || 0}
+                          currentPage={1}
+                          onTotalPagesChange={() => {}}
+                          panOffset={{ x: 0, y: 0 }}
+                          onPanChange={() => {}}
+                        />
+                      </div>
                     ) : (
                       <img
                         src={page.url}
                         alt={page.name}
+                        style={{
+                          transform: `rotate(${page.rotation || 0}deg)`,
+                          transition: 'transform 0.2s ease-out'
+                        }}
                         className="max-w-full max-h-full object-contain rounded-lg shadow-xs"
                       />
                     )}

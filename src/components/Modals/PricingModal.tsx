@@ -5,13 +5,11 @@ import {
   Sparkles, 
   ShieldCheck, 
   Building2, 
-  Zap, 
-  Database, 
-  HardDrive, 
   Lock,
   ArrowRight,
-  PhoneCall,
-  Mail
+  Mail,
+  CreditCard,
+  ExternalLink
 } from 'lucide-react';
 
 interface PricingModalProps {
@@ -19,6 +17,32 @@ interface PricingModalProps {
   onClose: () => void;
   onSelectPlan?: (planName: string) => void;
 }
+
+// ============================================================================
+// STRIPE PAYMENT LINKS — Replace these with your real Stripe Payment Link URLs
+// How to get these:
+// 1. Go to https://dashboard.stripe.com/payment-links
+// 2. Click "+ New" and create a product for each plan
+// 3. Copy the Payment Link URL (looks like https://buy.stripe.com/xxxx)
+// 4. Paste them below
+// ============================================================================
+const STRIPE_LINKS = {
+  solo: {
+    monthly: 'https://buy.stripe.com/REPLACE_SOLO_MONTHLY',
+    annual:  'https://buy.stripe.com/REPLACE_SOLO_ANNUAL',
+  },
+  pro: {
+    monthly: 'https://buy.stripe.com/REPLACE_PRO_MONTHLY',
+    annual:  'https://buy.stripe.com/REPLACE_PRO_ANNUAL',
+  },
+  enterprise: {
+    monthly: 'https://buy.stripe.com/REPLACE_ENTERPRISE_MONTHLY',
+    annual:  'https://buy.stripe.com/REPLACE_ENTERPRISE_ANNUAL',
+  }
+};
+
+// Set to true once you've replaced the links above with real Stripe Payment Links
+const STRIPE_CONFIGURED = false;
 
 export const PricingModal: React.FC<PricingModalProps> = ({
   isOpen,
@@ -31,11 +55,11 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
   const plans = [
     {
-      id: 'solo',
+      id: 'solo' as const,
       name: 'Solo Practice',
       description: 'Ideal for independent solicitors & immigration advisers',
       priceMonthly: 39,
-      priceAnnual: 29, // per month when paid annually
+      priceAnnual: 29,
       highlight: false,
       badge: 'Starter',
       features: [
@@ -49,7 +73,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       ]
     },
     {
-      id: 'pro',
+      id: 'pro' as const,
       name: 'Chambers Professional',
       description: 'Most popular for growing law firms & solicitors practices',
       priceMonthly: 89,
@@ -68,7 +92,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       ]
     },
     {
-      id: 'enterprise',
+      id: 'enterprise' as const,
       name: 'Private Vault (BYOC)',
       description: 'Maximum compliance for law firms requiring data sovereignty',
       priceMonthly: 219,
@@ -86,6 +110,31 @@ export const PricingModal: React.FC<PricingModalProps> = ({
       ]
     }
   ];
+
+  const handleGetPlan = (plan: typeof plans[number]) => {
+    if (onSelectPlan) onSelectPlan(plan.name);
+
+    const link = STRIPE_LINKS[plan.id][billingCycle];
+
+    if (!STRIPE_CONFIGURED || link.includes('REPLACE_')) {
+      // Stripe not yet configured — show setup instructions
+      alert(
+        `💳 Stripe Payment Not Yet Configured\n\n` +
+        `To receive payments directly into your bank account:\n\n` +
+        `1. Create a free Stripe account at https://stripe.com\n` +
+        `2. Go to Dashboard → Payment Links\n` +
+        `3. Create a product for "${plan.name}" at £${billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly}/month\n` +
+        `4. Copy the payment link URL\n` +
+        `5. Paste it into PricingModal.tsx under STRIPE_LINKS\n\n` +
+        `Once configured, clicking this button sends customers directly to a Stripe-hosted checkout page. Money goes straight into your Stripe account (connected to your UK bank).`
+      );
+      return;
+    }
+
+    // Open Stripe Payment Link in a new tab
+    window.open(link, '_blank', 'noopener,noreferrer');
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -112,6 +161,31 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Setup Notice Banner — shown when Stripe not yet configured */}
+        {!STRIPE_CONFIGURED && (
+          <div className="bg-[#fef7e0] border-b border-[#f6d34a]/40 px-6 py-2.5 flex items-center justify-between gap-4 text-xs">
+            <div className="flex items-center gap-2 text-[#b06000] font-medium">
+              <CreditCard className="w-4 h-4 flex-shrink-0" />
+              <span>
+                <strong>Payment Setup Required:</strong> Replace Stripe Payment Link URLs in{' '}
+                <code className="bg-[#feefc3] px-1 rounded">PricingModal.tsx</code>{' '}
+                to accept real payments. Visit{' '}
+                <a href="https://stripe.com" target="_blank" rel="noopener noreferrer" className="underline text-[#1a73e8]">stripe.com</a>
+                {' '}to create your free account.
+              </span>
+            </div>
+            <a
+              href="https://dashboard.stripe.com/payment-links"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 flex items-center gap-1 px-3 py-1 bg-[#635bff] text-white rounded-lg font-semibold text-[11px] hover:bg-[#5851e5] transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Open Stripe
+            </a>
+          </div>
+        )}
 
         {/* Billing Cycle Switcher */}
         <div className="pt-4 pb-2 px-6 flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#f8fafd] border-b border-[#dadce0]">
@@ -215,20 +289,23 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                 {/* Card Action CTA */}
                 <div className="p-5 pt-0">
                   <button
-                    onClick={() => {
-                      if (onSelectPlan) onSelectPlan(plan.name);
-                      alert(`To purchase the ${plan.name} license, contact your software distributor or generate a one-time key.`);
-                      onClose();
-                    }}
+                    onClick={() => handleGetPlan(plan)}
                     className={`w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-xs flex items-center justify-center gap-1.5 ${
                       plan.highlight
                         ? 'bg-[#1a73e8] hover:bg-[#1557b0] text-white shadow-md'
                         : 'bg-white hover:bg-[#f1f3f4] text-[#1a73e8] border border-[#dadce0]'
                     }`}
                   >
+                    <CreditCard className="w-4 h-4" />
                     <span>Get {plan.name}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
+                  {STRIPE_CONFIGURED && (
+                    <p className="text-center text-[10px] text-[#5f6368] mt-1.5 flex items-center justify-center gap-1">
+                      <Lock className="w-3 h-3" />
+                      Secure checkout via Stripe
+                    </p>
+                  )}
                 </div>
               </div>
             );
@@ -243,7 +320,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({
           </div>
           <div className="flex items-center gap-3 font-medium text-[#1a73e8]">
             <span className="flex items-center gap-1">
-              <Mail className="w-3.5 h-3.5" /> sales@docvault-legal.com
+              <Mail className="w-3.5 h-3.5" />sales@docvault-legal.com
             </span>
           </div>
         </div>
