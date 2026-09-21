@@ -54,6 +54,7 @@ export interface DocumentPage {
   url: string;
   fileType: FileType;
   fileSize?: number;
+  rotation?: number; // Saved permanent rotation (0, 90, 180, 270)
 }
 
 export interface DocumentItem {
@@ -69,6 +70,7 @@ export interface DocumentItem {
   status: DocumentStatus; // 'missing' | 'disapproved' -> Red, 'approved' -> Green, 'pending' -> White
   notes?: string;
   storagePath?: string;
+  rotation?: number; // Saved permanent rotation (0, 90, 180, 270)
   createdAt: string;
   updatedAt?: string;
   description?: string;

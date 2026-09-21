@@ -32,7 +32,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
   onSaveMultiPageDoc,
   onBatchUploadFiles
 }) => {
-  const [activeTab, setActiveTab] = useState<'card' | 'batch'>('card');
+  const [activeTab, setActiveTab] = useState<'card' | 'batch'>('batch');
 
   // Tab 1: Multi-Side / 2-Sided Document state
   const [cardTitle, setCardTitle] = useState('2-Sided Document');
@@ -202,18 +202,6 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
         <div className="flex border-b border-[#dadce0] bg-[#f8fafd] px-5 pt-2">
           <button
             type="button"
-            onClick={() => setActiveTab('card')}
-            className={`flex items-center gap-2 pb-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 transition-all ${
-              activeTab === 'card'
-                ? 'border-[#1a73e8] text-[#1a73e8] font-semibold'
-                : 'border-transparent text-[#5f6368] hover:text-[#202124]'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Multi-Side / 2-Sided Document (Front & Back)</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setActiveTab('batch')}
             className={`flex items-center gap-2 pb-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 transition-all ${
               activeTab === 'batch'
@@ -222,7 +210,19 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
             }`}
           >
             <Files className="w-4 h-4" />
-            <span>Batch Upload Multiple Files</span>
+            <span>Upload PDF / Multiple Files</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('card')}
+            className={`flex items-center gap-2 pb-2.5 px-3 text-xs sm:text-sm font-medium border-b-2 transition-all ${
+              activeTab === 'card'
+                ? 'border-[#1a73e8] text-[#1a73e8] font-semibold'
+                : 'border-transparent text-[#5f6368] hover:text-[#202124]'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            <span>Multi-Side / 2-Sided (Front & Back)</span>
           </button>
         </div>
 

@@ -7,6 +7,93 @@ if (typeof window !== 'undefined' && 'Worker' in window) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 }
 
+interface PdfPageCanvasProps {
+  pdfDoc: any;
+  pageNum: number;
+  zoom: number;
+  rotation: number;
+}
+
+const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({ pdfDoc, pageNum, zoom, rotation }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [rendering, setRendering] = useState(true);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    let renderTask: any = null;
+    let isCancelled = false;
+
+    const render = async () => {
+      try {
+        setRendering(true);
+        const page = await pdfDoc.getPage(pageNum);
+        if (isCancelled) return;
+
+        // Base scale 1.4 gives high-DPI crispness on retina and modern screens
+        const viewport = page.getViewport({ scale: zoom * 1.4, rotation });
+        const canvas = canvasRef.current;
+        if (!canvas || isCancelled) return;
+
+        const context = canvas.getContext('2d');
+        if (!context) return;
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        setDimensions({ width: viewport.width, height: viewport.height });
+
+        renderTask = page.render({
+          canvasContext: context,
+          viewport: viewport
+        });
+
+        await renderTask.promise;
+        if (!isCancelled) {
+          setRendering(false);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'RenderingCancelledException') {
+          console.warn(`Error rendering PDF page ${pageNum}:`, err);
+        }
+      }
+    };
+
+    render();
+
+    return () => {
+      isCancelled = true;
+      if (renderTask) {
+        renderTask.cancel();
+      }
+    };
+  }, [pdfDoc, pageNum, zoom, rotation]);
+
+  return (
+    <div className="flex flex-col items-center mb-6 last:mb-2 w-full">
+      <div className="text-[11px] font-semibold text-[#5f6368] mb-1.5 bg-white/90 backdrop-blur-xs px-2.5 py-0.5 rounded-full border border-[#dadce0] shadow-xs">
+        Page {pageNum} of {pdfDoc.numPages}
+      </div>
+      <div
+        className="relative shadow-xl rounded-md bg-white border border-[#dadce0] overflow-hidden flex items-center justify-center transition-all duration-150"
+        style={{
+          minWidth: dimensions ? `${Math.min(dimensions.width, 300)}px` : '300px',
+          minHeight: dimensions ? `${Math.min(dimensions.height, 400)}px` : '400px'
+        }}
+      >
+        {rendering && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 backdrop-blur-xs z-10 text-[#5f6368] text-xs">
+            <div className="w-6 h-6 border-2 border-[#1a73e8] border-t-transparent rounded-full animate-spin mb-1.5" />
+            <span>Loading Page {pageNum}...</span>
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full h-auto"
+        />
+      </div>
+    </div>
+  );
+};
+
 interface PdfViewerProps {
   url: string;
   name: string;
@@ -28,14 +115,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   panOffset,
   onPanChange
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const singleCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [viewMode, setViewMode] = useState<'canvas' | 'native'>('canvas');
+  const [viewMode, setViewMode] = useState<'continuous' | 'single' | 'native'>('continuous');
 
   // Helper to convert base64 data URI to Uint8Array
   const dataUriToUint8Array = (dataUri: string): Uint8Array => {
@@ -53,7 +139,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   useEffect(() => {
     let isCancelled = false;
     setLoading(true);
-    setError(null);
 
     const loadPdf = async () => {
       try {
@@ -74,7 +159,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         if (!isCancelled) {
           // Switch to native embedded view if canvas parse has issues
           setViewMode('native');
-          setError(err.message || 'Switched to native PDF view');
           setLoading(false);
         }
       }
@@ -87,9 +171,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [url]);
 
-  // Render current page onto canvas
+  // Render single page onto canvas (when in 'single' mode)
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || viewMode === 'native') return;
+    if (!pdfDoc || !singleCanvasRef.current || viewMode !== 'single') return;
 
     let renderTask: any = null;
 
@@ -97,7 +181,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       try {
         const page = await pdfDoc.getPage(currentPage);
         const viewport = page.getViewport({ scale: zoom * 1.5, rotation });
-        const canvas = canvasRef.current;
+        const canvas = singleCanvasRef.current;
         if (!canvas) return;
 
         const context = canvas.getContext('2d');
@@ -130,7 +214,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   }, [pdfDoc, currentPage, zoom, rotation, viewMode]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (viewMode === 'native') return;
+    if (viewMode !== 'single') return;
     e.preventDefault();
     setIsDragging(true);
     setDragStart({
@@ -140,7 +224,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || viewMode === 'native') return;
+    if (!isDragging || viewMode !== 'single') return;
     onPanChange({
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y
@@ -152,17 +236,30 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   };
 
   return (
-    <div className="w-full h-full flex flex-col relative overflow-hidden bg-[#f8fafd]">
+    <div className="w-full h-full flex flex-col relative overflow-hidden bg-[#f0f3f8]">
       {/* PDF View Mode Switcher Badge */}
-      <div className="absolute top-3 right-4 z-20 flex items-center gap-1.5 bg-white/95 backdrop-blur-xs border border-[#dadce0] rounded-xl p-1 shadow-sm text-xs select-none">
+      <div className="absolute top-3 right-4 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-xs border border-[#dadce0] rounded-xl p-1 shadow-sm text-xs select-none">
         <button
-          onClick={() => setViewMode('canvas')}
-          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
-            viewMode === 'canvas'
+          onClick={() => setViewMode('continuous')}
+          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1.5 ${
+            viewMode === 'continuous'
               ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
               : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
           }`}
-          title="Single page interactive canvas with zoom, pan, and rotate controls"
+          title="Scroll vertically through all PDF pages with mouse wheel"
+        >
+          <Layers className="w-3.5 h-3.5" />
+          <span>Continuous Scroll</span>
+        </button>
+
+        <button
+          onClick={() => setViewMode('single')}
+          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1.5 ${
+            viewMode === 'single'
+              ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+              : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
+          }`}
+          title="Single page interactive canvas with zoom and pan"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>Single Page</span>
@@ -170,44 +267,54 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         <button
           onClick={() => setViewMode('native')}
-          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
+          className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1.5 ${
             viewMode === 'native'
               ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
               : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
           }`}
-          title="Continuous vertical scroll view through all pages with mouse wheel"
+          title="Open inside browser's built-in PDF viewer"
         >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Continuous Scroll View</span>
+          <ExternalLink className="w-3.5 h-3.5" />
+          <span>Native Browser</span>
         </button>
       </div>
 
       {/* Main Container */}
-      <div
-        ref={containerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        className={`w-full flex-1 flex items-center justify-center overflow-auto p-4 relative ${
-          viewMode === 'canvas' && isDragging ? 'cursor-grabbing' : viewMode === 'canvas' ? 'cursor-grab' : ''
-        }`}
-      >
-        {loading && (
-          <div className="flex flex-col items-center gap-2 text-[#5f6368]">
-            <div className="w-8 h-8 border-3 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs">Rendering PDF document...</p>
-          </div>
-        )}
+      {loading && (
+        <div className="w-full flex-1 flex flex-col items-center justify-center gap-2 text-[#5f6368]">
+          <div className="w-8 h-8 border-3 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-medium">Rendering PDF document...</p>
+        </div>
+      )}
 
-        {viewMode === 'native' ? (
-          <div className="w-full h-full flex flex-col items-center justify-center p-2">
-            <iframe
-              src={url}
-              title={name}
-              className="w-full h-full rounded-2xl shadow-md border border-[#dadce0] bg-white"
-            />
-          </div>
-        ) : (
+      {!loading && viewMode === 'continuous' && (
+        <div
+          ref={containerRef}
+          className="w-full flex-1 overflow-y-auto p-4 flex flex-col items-center"
+        >
+          {pdfDoc &&
+            Array.from({ length: pdfDoc.numPages }, (_, i) => i + 1).map((pageNum) => (
+              <PdfPageCanvas
+                key={`${url}_page_${pageNum}`}
+                pdfDoc={pdfDoc}
+                pageNum={pageNum}
+                zoom={zoom}
+                rotation={rotation}
+              />
+            ))}
+        </div>
+      )}
+
+      {!loading && viewMode === 'single' && (
+        <div
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className={`w-full flex-1 flex items-center justify-center overflow-auto p-4 relative ${
+            isDragging ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
+        >
           <div
             style={{
               transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
@@ -216,15 +323,25 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             className="flex justify-center"
           >
             <canvas
-              ref={canvasRef}
+              ref={singleCanvasRef}
               className="shadow-2xl rounded-sm bg-white border border-[#dadce0] max-w-none"
               style={{
                 maxHeight: zoom <= 1 ? '82vh' : 'none'
               }}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {!loading && viewMode === 'native' && (
+        <div className="w-full flex-1 relative bg-white">
+          <iframe
+            src={url}
+            title={name}
+            className="absolute inset-0 w-full h-full border-0"
+          />
+        </div>
+      )}
     </div>
   );
 };

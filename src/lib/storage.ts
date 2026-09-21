@@ -3,6 +3,9 @@ import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { idbSaveDocuments, idbGetDocuments } from './idbStorage';
+
+export { idbGetDocuments, idbSaveDocuments };
 
 const CLIENTS_KEY = 'docvault_clients';
 const TABS_KEY = 'docvault_collection_tabs';
@@ -25,7 +28,11 @@ export const getClients = (): ClientRecord[] => {
 };
 
 export const saveClients = (clients: ClientRecord[]) => {
-  localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+  try {
+    localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+  } catch (err) {
+    console.warn('saveClients quota error:', err);
+  }
 };
 
 export const getInitialTabs = (): CollectionTab[] => {
@@ -41,7 +48,11 @@ export const getInitialTabs = (): CollectionTab[] => {
 };
 
 export const saveTabs = (tabs: CollectionTab[]) => {
-  localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+  try {
+    localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
+  } catch (err) {
+    console.warn('saveTabs quota error:', err);
+  }
 };
 
 export const getInitialFolders = (): DocumentFolder[] => {
@@ -57,7 +68,11 @@ export const getInitialFolders = (): DocumentFolder[] => {
 };
 
 export const saveFolders = (folders: DocumentFolder[]) => {
-  localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+  try {
+    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
+  } catch (err) {
+    console.warn('saveFolders quota error:', err);
+  }
 };
 
 export const getInitialDocuments = (): DocumentItem[] => {
@@ -73,7 +88,22 @@ export const getInitialDocuments = (): DocumentItem[] => {
 };
 
 export const saveDocuments = (docs: DocumentItem[]) => {
-  localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
+  // Always persist full documents with unlimited quota to native IndexedDB
+  idbSaveDocuments(docs).catch((e) => console.warn('IndexedDB save note:', e));
+
+  // Also write to localStorage safely without throwing QuotaExceededError
+  try {
+    localStorage.setItem(DOCS_KEY, JSON.stringify(docs));
+  } catch (err) {
+    console.warn('localStorage quota reached. Storing full files in IndexedDB, saving lightweight metadata to localStorage:', err);
+    try {
+      const lightweightDocs = docs.map((d) => ({
+        ...d,
+        url: d.url && d.url.length > 200000 ? '' : d.url
+      }));
+      localStorage.setItem(DOCS_KEY, JSON.stringify(lightweightDocs));
+    } catch {}
+  }
 };
 
 export const getSolicitorProfile = (): SolicitorProfile | null => {
@@ -89,10 +119,14 @@ export const getSolicitorProfile = (): SolicitorProfile | null => {
 };
 
 export const saveSolicitorProfile = (profile: SolicitorProfile | null) => {
-  if (!profile) {
-    localStorage.removeItem(PROFILE_KEY);
-  } else {
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  try {
+    if (!profile) {
+      localStorage.removeItem(PROFILE_KEY);
+    } else {
+      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+    }
+  } catch (err) {
+    console.warn('saveSolicitorProfile error:', err);
   }
 };
 
@@ -171,12 +205,46 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
   });
 };
 
+export const getRotatedCanvas = (img: HTMLImageElement, rotation: number = 0): HTMLCanvasElement => {
+  const canvas = document.createElement('canvas');
+  const rot = ((rotation % 360) + 360) % 360;
+  if (rot === 90 || rot === 270) {
+    canvas.width = img.height;
+    canvas.height = img.width;
+  } else {
+    canvas.width = img.width;
+    canvas.height = img.height;
+  }
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+  }
+  return canvas;
+};
+
 export const exportSingleDocument = async (doc: DocumentItem) => {
   if (!doc.hasFile || !doc.url) {
     alert('This is a document requirement placeholder. No file has been uploaded yet.');
     return;
   }
   try {
+    if (doc.rotation && doc.rotation % 360 !== 0 && ['png', 'jpg', 'jpeg', 'webp'].includes(doc.fileType)) {
+      const img = await loadImage(doc.url);
+      const canvas = getRotatedCanvas(img, doc.rotation);
+      const mime = doc.fileType === 'png' ? 'image/png' : 'image/jpeg';
+      canvas.toBlob((blob) => {
+        if (blob) {
+          saveAs(blob, doc.name);
+        } else {
+          urlToBlob(doc.url).then((b) => saveAs(b, doc.name));
+        }
+      }, mime, 0.95);
+      return;
+    }
     const blob = await urlToBlob(doc.url);
     saveAs(blob, doc.name);
   } catch (err) {
@@ -199,17 +267,20 @@ export const exportAsPdf = async (doc: DocumentItem) => {
         const page = doc.pages[i];
         if (page.fileType === 'pdf') continue;
         const img = await loadImage(page.url);
-        const orientation = img.width > img.height ? 'landscape' : 'portrait';
+        const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
+        const canvas = getRotatedCanvas(img, rot);
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
         if (!pdf) {
           pdf = new jsPDF({
             orientation,
             unit: 'px',
-            format: [img.width, img.height]
+            format: [canvas.width, canvas.height]
           });
-          pdf.addImage(img, 'PNG', 0, 0, img.width, img.height);
+          pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
         } else {
-          pdf.addPage([img.width, img.height], orientation);
-          pdf.addImage(img, 'PNG', 0, 0, img.width, img.height);
+          pdf.addPage([canvas.width, canvas.height], orientation);
+          pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
         }
       }
       if (pdf) {
@@ -228,12 +299,16 @@ export const exportAsPdf = async (doc: DocumentItem) => {
 
   try {
     const img = await loadImage(doc.url);
+    const rot = doc.rotation || 0;
+    const canvas = getRotatedCanvas(img, rot);
+    const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
     const pdf = new jsPDF({
-      orientation: img.width > img.height ? 'landscape' : 'portrait',
+      orientation,
       unit: 'px',
-      format: [img.width, img.height]
+      format: [canvas.width, canvas.height]
     });
-    pdf.addImage(img, 'PNG', 0, 0, img.width, img.height);
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+    pdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
     const pdfName = doc.name.replace(/\.[^/.]+$/, "") + ".pdf";
     pdf.save(pdfName);
   } catch (err) {
@@ -255,19 +330,12 @@ export const exportAsJpg = async (doc: DocumentItem) => {
       const page = doc.pages[i];
       try {
         const img = await loadImage(page.url);
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
-          const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
-          if (blob) {
-            const cleanPageName = (page.name || `Side_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
-            folder.file(`${cleanPageName}.jpg`, blob);
-          }
+        const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
+        const canvas = getRotatedCanvas(img, rot);
+        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+        if (blob) {
+          const cleanPageName = (page.name || `Side_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+          folder.file(`${cleanPageName}.jpg`, blob);
         }
       } catch (err) {
         console.warn(`Could not convert page ${i} to JPG:`, err);
@@ -286,15 +354,8 @@ export const exportAsJpg = async (doc: DocumentItem) => {
   // Single page
   try {
     const img = await loadImage(doc.url);
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-
+    const rot = doc.rotation || 0;
+    const canvas = getRotatedCanvas(img, rot);
     canvas.toBlob((blob) => {
       if (blob) {
         const jpgName = doc.name.replace(/\.[^/.]+$/, "") + ".jpg";
@@ -360,16 +421,42 @@ export const exportMultipleDocuments = async (
 
         for (let i = 0; i < doc.pages.length; i++) {
           const page = doc.pages[i];
-          const pageBlob = await urlToBlob(page.url);
+          const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
           const cleanPageName = (page.name || `Page_${i + 1}`).replace(/[\\/:*?"<>|]/g, '_');
           const ext = page.fileType || 'jpg';
           const filename = cleanPageName.endsWith(`.${ext}`) ? cleanPageName : `${cleanPageName}.${ext}`;
+
+          if (rot && rot % 360 !== 0 && ['png', 'jpg', 'jpeg', 'webp'].includes(page.fileType)) {
+            try {
+              const img = await loadImage(page.url);
+              const canvas = getRotatedCanvas(img, rot);
+              const mime = page.fileType === 'png' ? 'image/png' : 'image/jpeg';
+              const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, mime, 0.95));
+              if (blob) {
+                docSubFolder?.file(filename, blob);
+                continue;
+              }
+            } catch {}
+          }
+          const pageBlob = await urlToBlob(page.url);
           docSubFolder?.file(filename, pageBlob);
         }
       } else {
         // Single file document
-        const blob = await urlToBlob(doc.url);
         const cleanName = doc.name.replace(/[\\/:*?"<>|]/g, '_');
+        if (doc.rotation && doc.rotation % 360 !== 0 && ['png', 'jpg', 'jpeg', 'webp'].includes(doc.fileType)) {
+          try {
+            const img = await loadImage(doc.url);
+            const canvas = getRotatedCanvas(img, doc.rotation);
+            const mime = doc.fileType === 'png' ? 'image/png' : 'image/jpeg';
+            const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, mime, 0.95));
+            if (blob) {
+              targetFolder.file(cleanName, blob);
+              continue;
+            }
+          } catch {}
+        }
+        const blob = await urlToBlob(doc.url);
         targetFolder.file(cleanName, blob);
       }
     } catch (err) {

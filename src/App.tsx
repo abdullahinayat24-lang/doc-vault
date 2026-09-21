@@ -27,7 +27,8 @@ import {
   exportMultipleDocuments,
   exportAsPdf,
   exportAsJpg,
-  detectFileType
+  detectFileType,
+  idbGetDocuments
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -77,6 +78,15 @@ export function App() {
   const [isNewClientOpen, setIsNewClientOpen] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [isPricingOpen, setIsPricingOpen] = useState<boolean>(false);
+
+  // Hydrate full documents from IndexedDB on startup (unlimited storage quota)
+  useEffect(() => {
+    idbGetDocuments().then((idbDocs) => {
+      if (idbDocs && idbDocs.length > 0) {
+        setDocuments(idbDocs);
+      }
+    }).catch((err) => console.warn('IndexedDB initial load note:', err));
+  }, []);
 
   // Sync to localStorage
   useEffect(() => {
@@ -499,6 +509,22 @@ export function App() {
     );
   };
 
+  const handleUpdateDocumentRotation = (id: string, rotation: number, pageIndex?: number) => {
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id === id) {
+          if (pageIndex !== undefined && doc.pages && doc.pages[pageIndex]) {
+            const newPages = [...doc.pages];
+            newPages[pageIndex] = { ...newPages[pageIndex], rotation };
+            return { ...doc, pages: newPages, updatedAt: new Date().toISOString() };
+          }
+          return { ...doc, rotation, updatedAt: new Date().toISOString() };
+        }
+        return doc;
+      })
+    );
+  };
+
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this document item?')) {
@@ -804,6 +830,7 @@ export function App() {
                 onAddPageToDoc={handleAddPageToDoc}
                 onRenameDocument={handleRenameDocument}
                 onRenamePage={handleRenamePage}
+                onUpdateDocumentRotation={handleUpdateDocumentRotation}
                 isReadOnly={false}
               />
             </div>

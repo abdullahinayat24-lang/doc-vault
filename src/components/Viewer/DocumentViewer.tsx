@@ -43,6 +43,7 @@ interface DocumentViewerProps {
   onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
   onRenameDocument?: (id: string, newName: string) => void;
   onRenamePage?: (docId: string, pageIndex: number, newPageName: string) => void;
+  onUpdateDocumentRotation?: (id: string, rotation: number, pageIndex?: number) => void;
   isReadOnly?: boolean;
 }
 
@@ -56,6 +57,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onAddPageToDoc,
   onRenameDocument,
   onRenamePage,
+  onUpdateDocumentRotation,
   isReadOnly = false
 }) => {
   const [zoom, setZoom] = useState<number>(1.0);
@@ -72,18 +74,19 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const addPageInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset controls when document changes
+  // Sync controls when document or active page changes
   useEffect(() => {
     setZoom(1.0);
-    setRotation(0);
+    const initialRot = (document?.pages && document.pages[activePageIndex]?.rotation !== undefined)
+      ? (document.pages[activePageIndex].rotation || 0)
+      : (document?.rotation || 0);
+    setRotation(initialRot);
     setCurrentPage(1);
     setTotalPages(1);
     setPanOffset({ x: 0, y: 0 });
-    setActivePageIndex(0);
-    setViewLayout('single');
     setIsEditingName(false);
     setNameInput(document?.name || '');
-  }, [document?.id]);
+  }, [document?.id, activePageIndex]);
 
   if (!document) {
     return (
@@ -106,10 +109,27 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setZoom(1.0);
     setPanOffset({ x: 0, y: 0 });
     setRotation(0);
+    if (onUpdateDocumentRotation && document) {
+      if (document.pages && document.pages.length > 0) {
+        onUpdateDocumentRotation(document.id, 0, activePageIndex);
+      } else {
+        onUpdateDocumentRotation(document.id, 0);
+      }
+    }
   };
 
-  // Rotation handler
-  const handleRotate = () => setRotation((prev) => (prev + 90) % 360);
+  // Rotation handler (persists rotation permanently)
+  const handleRotate = () => {
+    const nextRot = (rotation + 90) % 360;
+    setRotation(nextRot);
+    if (onUpdateDocumentRotation && document) {
+      if (document.pages && document.pages.length > 0) {
+        onUpdateDocumentRotation(document.id, nextRot, activePageIndex);
+      } else {
+        onUpdateDocumentRotation(document.id, nextRot);
+      }
+    }
+  };
 
   // Pan nudges
   const panStep = 50;
@@ -574,37 +594,66 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         {/* Continuous Scroll View Layout */}
         {viewLayout === 'scroll' && document.pages && document.pages.length > 0 ? (
           <div className="flex-1 w-full h-full p-4 overflow-y-auto space-y-6 flex flex-col items-center">
-            {document.pages.map((page, idx) => (
-              <div
-                key={page.id || idx}
-                className="bg-white border border-[#dadce0] rounded-2xl flex flex-col overflow-hidden shadow-md max-w-3xl w-full"
-              >
-                <div className="bg-[#f8fafd] border-b border-[#dadce0] px-4 py-2.5 flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#1a73e8] uppercase tracking-wider flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5" />
-                    {page.name || `Page ${idx + 1}`}
-                  </span>
-                  <span className="text-[10px] uppercase font-semibold text-[#5f6368] bg-[#f1f3f4] px-2 py-0.5 rounded">
-                    Page {idx + 1} of {document.pages?.length} • {page.fileType}
-                  </span>
+            {document.pages.map((page, idx) => {
+              const pageRotation = page.rotation !== undefined ? page.rotation : (document.rotation || 0);
+              return (
+                <div
+                  key={page.id || idx}
+                  className="bg-white border border-[#dadce0] rounded-2xl flex flex-col overflow-hidden shadow-md max-w-3xl w-full"
+                >
+                  <div className="bg-[#f8fafd] border-b border-[#dadce0] px-4 py-2.5 flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#1a73e8] uppercase tracking-wider flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      {page.name || `Page ${idx + 1}`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {onUpdateDocumentRotation && !isReadOnly && (
+                        <button
+                          onClick={() => {
+                            const nextRot = (pageRotation + 90) % 360;
+                            onUpdateDocumentRotation(document.id, nextRot, idx);
+                          }}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-[#5f6368] hover:text-[#1a73e8] bg-white px-2 py-1 rounded-md border border-[#dadce0] hover:bg-[#f1f3f4] transition-colors shadow-2xs"
+                          title="Rotate this page/side 90°"
+                        >
+                          <RotateCw className="w-3 h-3" />
+                          <span>Rotate</span>
+                        </button>
+                      )}
+                      <span className="text-[10px] uppercase font-semibold text-[#5f6368] bg-[#f1f3f4] px-2 py-0.5 rounded">
+                        Page {idx + 1} of {document.pages?.length} • {page.fileType}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-[#fdfdfe] flex items-center justify-center overflow-auto">
+                    {page.fileType === 'pdf' ? (
+                      <div className="w-full h-[650px]">
+                        <PdfViewer
+                          url={page.url}
+                          name={page.name}
+                          zoom={1.0}
+                          rotation={pageRotation}
+                          currentPage={1}
+                          onTotalPagesChange={() => {}}
+                          panOffset={{ x: 0, y: 0 }}
+                          onPanChange={() => {}}
+                        />
+                      </div>
+                    ) : (
+                      <img
+                        src={page.url}
+                        alt={page.name}
+                        style={{
+                          transform: `rotate(${pageRotation}deg)`,
+                          transition: 'transform 0.2s ease-out'
+                        }}
+                        className="max-w-full max-h-[750px] object-contain rounded-lg shadow-xs"
+                      />
+                    )}
+                  </div>
                 </div>
-                <div className="p-4 bg-[#fdfdfe] flex items-center justify-center">
-                  {page.fileType === 'pdf' ? (
-                    <iframe
-                      src={`${page.url}#toolbar=0`}
-                      title={page.name}
-                      className="w-full h-[600px] border-0 rounded-lg"
-                    />
-                  ) : (
-                    <img
-                      src={page.url}
-                      alt={page.name}
-                      className="max-w-full max-h-[750px] object-contain rounded-lg shadow-xs"
-                    />
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : viewLayout === 'side-by-side' && document.pages && document.pages.length >= 2 ? (
           <div className="flex-1 w-full h-full p-4 overflow-y-auto">
