@@ -17,9 +17,14 @@ import {
   Image as ImageIcon,
   ArrowLeft,
   Users,
-  Sparkles
+  Sparkles,
+  KeyRound,
+  Clock,
+  Tag
 } from 'lucide-react';
 import { SolicitorProfile, DocumentItem, ClientRecord } from '../types';
+import { getTrialStatus } from '../lib/storage';
+
 
 interface HeaderProps {
   user: SolicitorProfile;
@@ -32,6 +37,8 @@ interface HeaderProps {
   onOpenAuth: () => void;
   onSignOut: () => void;
   onOpenPricing?: () => void;
+  onChangePinClick?: () => void;
+  onOpenDiscountKeys?: () => void;
   selectedCount: number;
   activeDocument: DocumentItem | null;
   onExportSelected: () => void;
@@ -40,6 +47,8 @@ interface HeaderProps {
   onExportCurrentAsJpg: () => void;
   onExportAll: () => void;
 }
+
+
 
 export const Header: React.FC<HeaderProps> = ({
   user,
@@ -52,6 +61,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   onSignOut,
   onOpenPricing,
+  onChangePinClick,
+  onOpenDiscountKeys,
   selectedCount,
   activeDocument,
   onExportSelected,
@@ -62,6 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const trial = getTrialStatus();
 
   return (
     <header className="h-16 bg-white border-b border-[#dadce0] px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30 select-none">
@@ -256,6 +268,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Trial badge */}
+        {trial.isActive && (
+          <button
+            onClick={onOpenPricing}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#1a73e8] bg-[#e8f0fe] border border-[#1a73e8]/30 rounded-full hover:bg-[#d2e3fc] transition-colors"
+            title="Free Trial Active"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Trial — {trial.daysLeft}d left</span>
+          </button>
+        )}
+
         {/* Lock Screen / Privacy Button */}
         <button
           onClick={onLockSession}
@@ -344,6 +368,30 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <Sparkles className="w-4 h-4 text-[#1a73e8]" />
                       <span>Subscription Plans &amp; Pricing</span>
+                    </button>
+                  )}
+                  {onChangePinClick && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onChangePinClick();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#202124] hover:bg-[#f1f3f4] flex items-center gap-2 transition-colors"
+                    >
+                      <KeyRound className="w-4 h-4 text-[#5f6368]" />
+                      <span>Change Lock PIN</span>
+                    </button>
+                  )}
+                  {onOpenDiscountKeys && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenDiscountKeys();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#202124] hover:bg-[#f1f3f4] flex items-center gap-2 transition-colors"
+                    >
+                      <Tag className="w-4 h-4 text-[#5f6368]" />
+                      <span>Special Discount Keys</span>
                     </button>
                   )}
                   <button

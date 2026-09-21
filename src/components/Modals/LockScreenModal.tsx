@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Delete, Shield, KeyRound } from 'lucide-react';
-import { getLockPin } from '../../lib/storage';
+import { Lock, Delete, KeyRound, ShieldAlert, Timer } from 'lucide-react';
+import { getLockPin, getPinAttemptStatus, recordFailedPinAttempt, clearPinAttempts } from '../../lib/storage';
 
 interface LockScreenModalProps {
   isLocked: boolean;
@@ -13,9 +13,26 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
   onUnlock,
   userEmail
 }) => {
-  const [pin, setPin] = useState<string>('');
-  const [error, setError] = useState<boolean>(false);
+  const [pin, setPin]                   = useState<string>('');
+  const [error, setError]               = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isLockedOut, setIsLockedOut]   = useState<boolean>(false);
+  const [lockoutMins, setLockoutMins]   = useState<number>(0);
+  const [attemptsLeft, setAttemptsLeft] = useState<number>(5);
+
+  // Refresh lockout timer every 30 seconds
+  useEffect(() => {
+    if (!isLocked) return;
+    const refresh = () => {
+      const status = getPinAttemptStatus();
+      setIsLockedOut(status.isLockedOut);
+      setLockoutMins(status.lockoutMinutesLeft);
+      setAttemptsLeft(status.attemptsLeft);
+    };
+    refresh();
+    const interval = setInterval(refresh, 30000);
+    return () => clearInterval(interval);
+  }, [isLocked]);
 
   useEffect(() => {
     if (!isLocked) {
@@ -25,34 +42,25 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
     }
   }, [isLocked]);
 
-  // Handle physical keyboard typing
+  // Physical keyboard
   useEffect(() => {
-    if (!isLocked) return;
-
+    if (!isLocked || isLockedOut) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (/^[0-9]$/.test(e.key)) {
-        handleDigit(e.key);
-      } else if (e.key === 'Backspace') {
-        handleBackspace();
-      }
+      if (/^[0-9]$/.test(e.key)) handleDigit(e.key);
+      else if (e.key === 'Backspace') handleBackspace();
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLocked, pin]);
+  }, [isLocked, pin, isLockedOut]);
 
   if (!isLocked) return null;
 
   const handleDigit = (digit: string) => {
-    if (pin.length < 4) {
-      const nextPin = pin + digit;
-      setPin(nextPin);
-      setError(false);
-
-      if (nextPin.length === 4) {
-        verifyPin(nextPin);
-      }
-    }
+    if (isLockedOut || pin.length >= 4) return;
+    const nextPin = pin + digit;
+    setPin(nextPin);
+    setError(false);
+    if (nextPin.length === 4) verifyPin(nextPin);
   };
 
   const handleBackspace = () => {
@@ -63,91 +71,123 @@ export const LockScreenModal: React.FC<LockScreenModalProps> = ({
   const verifyPin = (enteredPin: string) => {
     const validPin = getLockPin();
     if (enteredPin === validPin) {
+      clearPinAttempts();
       onUnlock();
     } else {
+      const status = recordFailedPinAttempt();
       setError(true);
-      setErrorMessage('Incorrect PIN. Please try again.');
-      setTimeout(() => {
-        setPin('');
-      }, 500);
+
+      if (status.isLockedOut) {
+        setIsLockedOut(true);
+        setLockoutMins(status.lockoutMinutesLeft);
+        setErrorMessage(`Too many wrong attempts. Locked for ${status.lockoutMinutesLeft} minutes.`);
+      } else {
+        setAttemptsLeft(status.attemptsLeft);
+        setErrorMessage(
+          status.attemptsLeft === 1
+            ? `Incorrect PIN. 1 attempt left before lockout!`
+            : `Incorrect PIN. ${status.attemptsLeft} attempts remaining.`
+        );
+      }
+
+      setTimeout(() => setPin(''), 500);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#202124]/70 backdrop-blur-md flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
       <div className="bg-white border border-[#dadce0] rounded-3xl shadow-2xl max-w-sm w-full p-8 flex flex-col items-center text-center">
-        {/* Lock Icon */}
-        <div className="w-16 h-16 rounded-2xl bg-[#e8f0fe] text-[#1a73e8] flex items-center justify-center mb-4 shadow-sm ring-4 ring-blue-50">
-          <Lock className="w-8 h-8" />
+        {/* Lock / Lockout Icon */}
+        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-4 shadow-sm ring-4 ${
+          isLockedOut
+            ? 'bg-[#fce8e6] text-[#d93025] ring-red-50'
+            : 'bg-[#e8f0fe] text-[#1a73e8] ring-blue-50'
+        }`}>
+          {isLockedOut ? <ShieldAlert className="w-8 h-8" /> : <Lock className="w-8 h-8" />}
         </div>
 
         <h2 className="font-['Google_Sans',sans-serif] text-xl font-bold text-[#202124]">
-          Session Locked
+          {isLockedOut ? 'Account Temporarily Locked' : 'Session Locked'}
         </h2>
         <p className="text-xs text-[#5f6368] mt-1 truncate max-w-[240px]">
           {userEmail || 'DocVault Workspace'}
         </p>
 
-        {/* 4-digit PIN Dots */}
-        <div className="flex items-center gap-4 my-6">
-          {[0, 1, 2, 3].map((index) => {
-            const isFilled = pin.length > index;
-            return (
-              <div
-                key={index}
-                className={`w-4 h-4 rounded-full transition-all duration-150 ${
-                  isFilled
-                    ? error
-                      ? 'bg-[#d93025] scale-110'
-                      : 'bg-[#1a73e8] scale-110'
-                    : 'bg-[#e8eaed] border border-[#dadce0]'
-                }`}
-              />
-            );
-          })}
-        </div>
-
-        {error && (
-          <p className="text-xs font-medium text-[#d93025] mb-4 animate-shake">
-            {errorMessage}
-          </p>
-        )}
-
-        {/* Virtual Keypad */}
-        <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
-            <button
-              key={digit}
-              type="button"
-              onClick={() => handleDigit(digit)}
-              className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#e8f0fe] active:bg-[#d2e3fc] text-[#202124] hover:text-[#1a73e8] text-xl font-medium border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
-            >
-              {digit}
-            </button>
-          ))}
-          <div className="flex items-center justify-center">
-            <span className="text-[10px] text-[#5f6368] uppercase font-bold">PIN</span>
+        {isLockedOut ? (
+          /* Lockout state */
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <div className="bg-[#fce8e6] border border-[#d93025]/20 rounded-2xl px-6 py-4 flex flex-col items-center gap-2">
+              <Timer className="w-6 h-6 text-[#d93025]" />
+              <p className="text-sm font-bold text-[#d93025]">Locked for {lockoutMins} minute{lockoutMins !== 1 ? 's' : ''}</p>
+              <p className="text-xs text-[#5f6368]">Too many incorrect PIN attempts.<br />Please wait before trying again.</p>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => handleDigit('0')}
-            className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#e8f0fe] active:bg-[#d2e3fc] text-[#202124] hover:text-[#1a73e8] text-xl font-medium border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
-          >
-            0
-          </button>
-          <button
-            type="button"
-            onClick={handleBackspace}
-            className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#fce8e6] text-[#5f6368] hover:text-[#d93025] border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
-            title="Backspace"
-          >
-            <Delete className="w-5 h-5" />
-          </button>
-        </div>
+        ) : (
+          <>
+            {/* 4-dot PIN indicator */}
+            <div className="flex items-center gap-4 my-6">
+              {[0, 1, 2, 3].map((index) => {
+                const isFilled = pin.length > index;
+                return (
+                  <div
+                    key={index}
+                    className={`w-4 h-4 rounded-full transition-all duration-150 ${
+                      isFilled
+                        ? error
+                          ? 'bg-[#d93025] scale-110'
+                          : 'bg-[#1a73e8] scale-110'
+                        : 'bg-[#e8eaed] border border-[#dadce0]'
+                    }`}
+                  />
+                );
+              })}
+            </div>
+
+            {error && (
+              <p className={`text-xs font-medium mb-4 ${
+                attemptsLeft <= 1 ? 'text-[#d93025] font-bold' : 'text-[#d93025]'
+              }`}>
+                {errorMessage}
+              </p>
+            )}
+
+            {/* Virtual Keypad */}
+            <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+                <button
+                  key={digit}
+                  type="button"
+                  onClick={() => handleDigit(digit)}
+                  className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#e8f0fe] active:bg-[#d2e3fc] text-[#202124] hover:text-[#1a73e8] text-xl font-medium border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
+                >
+                  {digit}
+                </button>
+              ))}
+              <div className="flex items-center justify-center">
+                <span className="text-[10px] text-[#5f6368] uppercase font-bold">PIN</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDigit('0')}
+                className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#e8f0fe] active:bg-[#d2e3fc] text-[#202124] hover:text-[#1a73e8] text-xl font-medium border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                onClick={handleBackspace}
+                className="h-14 rounded-2xl bg-[#f8fafd] hover:bg-[#fce8e6] text-[#5f6368] hover:text-[#d93025] border border-[#dadce0] transition-colors flex items-center justify-center shadow-xs"
+                title="Backspace"
+              >
+                <Delete className="w-5 h-5" />
+              </button>
+            </div>
+          </>
+        )}
 
         <div className="mt-6 pt-4 border-t border-[#f1f3f4] text-xs text-[#5f6368] flex items-center gap-1.5">
           <KeyRound className="w-3.5 h-3.5 text-[#1a73e8]" />
-          <span>Default PIN is <strong>1234</strong></span>
+          <span>Default PIN is <strong>1234</strong> — change it in your account menu</span>
         </div>
       </div>
     </div>

@@ -8,50 +8,77 @@ import {
   Lock,
   ArrowRight,
   Mail,
-  CreditCard,
-  ExternalLink
+  Tag,
+  ExternalLink,
+  Gift,
+  Clock
 } from 'lucide-react';
+import { getTrialStatus } from '../../lib/storage';
 
 interface PricingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectPlan?: (planName: string) => void;
+  onOpenDiscountKeys?: () => void;
 }
 
 // ============================================================================
-// STRIPE PAYMENT LINKS — Replace these with your real Stripe Payment Link URLs
-// How to get these:
-// 1. Go to https://dashboard.stripe.com/payment-links
-// 2. Click "+ New" and create a product for each plan
-// 3. Copy the Payment Link URL (looks like https://buy.stripe.com/xxxx)
-// 4. Paste them below
+// OWNER CONFIG & PAYPAL RECIPIENT
 // ============================================================================
-const STRIPE_LINKS = {
-  solo: {
-    monthly: 'https://buy.stripe.com/REPLACE_SOLO_MONTHLY',
-    annual:  'https://buy.stripe.com/REPLACE_SOLO_ANNUAL',
-  },
-  pro: {
-    monthly: 'https://buy.stripe.com/REPLACE_PRO_MONTHLY',
-    annual:  'https://buy.stripe.com/REPLACE_PRO_ANNUAL',
-  },
-  enterprise: {
-    monthly: 'https://buy.stripe.com/REPLACE_ENTERPRISE_MONTHLY',
-    annual:  'https://buy.stripe.com/REPLACE_ENTERPRISE_ANNUAL',
-  }
+const OWNER_EMAIL = 'rana.abdullah.inayat@gmail.com';
+
+const PAYPAL_USERNAME: string = ''; 
+
+// Promo codes — stored and validated in storage.ts
+const VALID_PROMO_CODES: Record<string, { label: string; discountPct: number }> = {
+  'SPECIAL50':  { label: '50% Special Solicitor Discount', discountPct: 50 },
+  'VIP100':     { label: '100% Free Lifetime VIP Key', discountPct: 100 },
+  'SAVE20':     { label: '20% Early Partner Discount', discountPct: 20 },
 };
 
-// Set to true once you've replaced the links above with real Stripe Payment Links
-const STRIPE_CONFIGURED = false;
 
 export const PricingModal: React.FC<PricingModalProps> = ({
   isOpen,
   onClose,
-  onSelectPlan
+  onSelectPlan,
+  onOpenDiscountKeys
 }) => {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
+  const [promoCode, setPromoCode]       = useState('');
+  const [promoApplied, setPromoApplied] = useState<{ label: string; discountPct: number } | null>(null);
+  const [promoError, setPromoError]     = useState('');
+  const [showPromo, setShowPromo]       = useState(false);
+
+  const trial = getTrialStatus();
 
   if (!isOpen) return null;
+
+  const applyPromo = () => {
+    const code = promoCode.trim().toUpperCase();
+    // Check against hardcoded codes first
+    if (VALID_PROMO_CODES[code]) {
+      setPromoApplied(VALID_PROMO_CODES[code]);
+      setPromoError('');
+      return;
+    }
+    // Check localStorage-stored codes (admin-generated)
+    try {
+      const stored = JSON.parse(localStorage.getItem('docvault_promo_codes') || '[]');
+      const found = stored.find((c: any) => c.code === code && c.active);
+      if (found) {
+        setPromoApplied({ label: found.label, discountPct: found.discountPct });
+        setPromoError('');
+        return;
+      }
+    } catch {}
+    setPromoError('Invalid or expired promo code.');
+    setPromoApplied(null);
+  };
+
+  const getDiscountedPrice = (base: number) => {
+    if (!promoApplied) return base;
+    return Math.round(base * (1 - promoApplied.discountPct / 100));
+  };
 
   const plans = [
     {
@@ -114,30 +141,25 @@ export const PricingModal: React.FC<PricingModalProps> = ({
   const handleGetPlan = (plan: typeof plans[number]) => {
     if (onSelectPlan) onSelectPlan(plan.name);
 
-    const link = STRIPE_LINKS[plan.id][billingCycle];
+    const basePrice = billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+    const finalPrice = getDiscountedPrice(basePrice);
+    const multiplier = billingCycle === 'annual' ? 12 : 1;
+    const totalPrice = finalPrice * multiplier;
 
-    if (!STRIPE_CONFIGURED || link.includes('REPLACE_')) {
-      // Stripe not yet configured — show setup instructions
-      alert(
-        `💳 Stripe Payment Not Yet Configured\n\n` +
-        `To receive payments directly into your bank account:\n\n` +
-        `1. Create a free Stripe account at https://stripe.com\n` +
-        `2. Go to Dashboard → Payment Links\n` +
-        `3. Create a product for "${plan.name}" at £${billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly}/month\n` +
-        `4. Copy the payment link URL\n` +
-        `5. Paste it into PricingModal.tsx under STRIPE_LINKS\n\n` +
-        `Once configured, clicking this button sends customers directly to a Stripe-hosted checkout page. Money goes straight into your Stripe account (connected to your UK bank).`
-      );
-      return;
+    if (PAYPAL_USERNAME && PAYPAL_USERNAME.trim() !== '') {
+      const link = `https://www.paypal.com/paypalme/${PAYPAL_USERNAME}/${totalPrice}GBP`;
+      window.open(link, '_blank', 'noopener,noreferrer');
+    } else {
+      // Direct PayPal Web Checkout targeting owner's PayPal email account
+      const planTitle = `DocVault ${plan.name} (${billingCycle === 'annual' ? 'Annual Plan' : 'Monthly Plan'})`;
+      const directLink = `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(OWNER_EMAIL)}&item_name=${encodeURIComponent(planTitle)}&amount=${totalPrice}&currency_code=GBP`;
+      window.open(directLink, '_blank', 'noopener,noreferrer');
     }
-
-    // Open Stripe Payment Link in a new tab
-    window.open(link, '_blank', 'noopener,noreferrer');
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="bg-white rounded-3xl shadow-2xl border border-[#dadce0] w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="px-6 py-5 border-b border-[#dadce0] flex items-center justify-between bg-gradient-to-r from-[#f8fafd] to-white">
@@ -147,45 +169,39 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             </div>
             <div>
               <h2 className="font-['Google_Sans',sans-serif] text-lg font-bold text-[#202124]">
-                DocVault Subscription Plans & Pricing
+                DocVault Subscription Plans &amp; Pricing
               </h2>
               <p className="text-xs text-[#5f6368]">
-                Simple, transparent software licensing for UK & Ireland legal practices
+                Simple, transparent licensing for UK &amp; Ireland legal practices
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4] rounded-full transition-colors"
-          >
+          <button onClick={onClose} className="p-1.5 text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4] rounded-full transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Setup Notice Banner — shown when Stripe not yet configured */}
-        {!STRIPE_CONFIGURED && (
-          <div className="bg-[#fef7e0] border-b border-[#f6d34a]/40 px-6 py-2.5 flex items-center justify-between gap-4 text-xs">
-            <div className="flex items-center gap-2 text-[#b06000] font-medium">
-              <CreditCard className="w-4 h-4 flex-shrink-0" />
-              <span>
-                <strong>Payment Setup Required:</strong> Replace Stripe Payment Link URLs in{' '}
-                <code className="bg-[#feefc3] px-1 rounded">PricingModal.tsx</code>{' '}
-                to accept real payments. Visit{' '}
-                <a href="https://stripe.com" target="_blank" rel="noopener noreferrer" className="underline text-[#1a73e8]">stripe.com</a>
-                {' '}to create your free account.
-              </span>
-            </div>
-            <a
-              href="https://dashboard.stripe.com/payment-links"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-shrink-0 flex items-center gap-1 px-3 py-1 bg-[#635bff] text-white rounded-lg font-semibold text-[11px] hover:bg-[#5851e5] transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Open Stripe
-            </a>
+        {/* Trial Banner */}
+        {trial.isActive && (
+          <div className="bg-[#e8f0fe] border-b border-[#1a73e8]/20 px-6 py-2.5 flex items-center gap-3 text-xs">
+            <Clock className="w-4 h-4 text-[#1a73e8] flex-shrink-0" />
+            <span className="text-[#1a73e8] font-semibold">
+              Free Trial Active — <strong>{trial.daysLeft} day{trial.daysLeft !== 1 ? 's' : ''} remaining</strong>. Upgrade anytime to keep your data.
+            </span>
           </div>
         )}
+
+        {/* Payment Recipient Badge */}
+        <div className="bg-[#f0f7ff] border-b border-[#1a73e8]/20 px-6 py-2 flex items-center justify-between gap-4 text-xs">
+          <div className="flex items-center gap-2 text-[#1a73e8] font-medium">
+            <ShieldCheck className="w-4 h-4 text-[#137333] flex-shrink-0" />
+            <span>Payments sent securely to account: <strong>{OWNER_EMAIL}</strong></span>
+          </div>
+          <span className="text-[11px] text-[#5f6368] hidden sm:inline">
+            Direct PayPal Checkout
+          </span>
+        </div>
+
 
         {/* Billing Cycle Switcher */}
         <div className="pt-4 pb-2 px-6 flex flex-col sm:flex-row items-center justify-between gap-3 bg-[#f8fafd] border-b border-[#dadce0]">
@@ -193,30 +209,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
             <ShieldCheck className="w-4 h-4 text-[#137333]" />
             <span>Bank-grade 256-bit encryption • No setup fees • Cancel anytime</span>
           </div>
-
           <div className="flex items-center bg-white border border-[#dadce0] rounded-full p-1 shadow-xs">
-            <button
-              onClick={() => setBillingCycle('monthly')}
-              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all ${
-                billingCycle === 'monthly'
-                  ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
-                  : 'text-[#5f6368] hover:text-[#202124]'
-              }`}
-            >
+            <button onClick={() => setBillingCycle('monthly')}
+              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all ${billingCycle === 'monthly' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
               Monthly
             </button>
-            <button
-              onClick={() => setBillingCycle('annual')}
-              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${
-                billingCycle === 'annual'
-                  ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
-                  : 'text-[#5f6368] hover:text-[#202124]'
-              }`}
-            >
+            <button onClick={() => setBillingCycle('annual')}
+              className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1 ${billingCycle === 'annual' ? 'bg-[#1a73e8] text-white shadow-xs font-semibold' : 'text-[#5f6368] hover:text-[#202124]'}`}>
               <span>Annual</span>
-              <span className="bg-[#e6f4ea] text-[#137333] text-[10px] font-bold px-1.5 py-0.2 rounded-full uppercase">
-                Save 20%
-              </span>
+              <span className="bg-[#e6f4ea] text-[#137333] text-[10px] font-bold px-1.5 py-0.2 rounded-full uppercase">Save 20%</span>
             </button>
           </div>
         </div>
@@ -224,18 +225,15 @@ export const PricingModal: React.FC<PricingModalProps> = ({
         {/* Pricing Cards Grid */}
         <div className="p-6 overflow-y-auto flex-1 grid grid-cols-1 md:grid-cols-3 gap-5">
           {plans.map((plan) => {
-            const price = billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+            const basePrice  = billingCycle === 'annual' ? plan.priceAnnual : plan.priceMonthly;
+            const finalPrice = getDiscountedPrice(basePrice);
+            const discounted = finalPrice < basePrice;
 
             return (
-              <div
-                key={plan.id}
+              <div key={plan.id}
                 className={`rounded-2xl border flex flex-col justify-between transition-all duration-200 relative ${
-                  plan.highlight
-                    ? 'border-[#1a73e8] shadow-lg ring-2 ring-[#1a73e8]/20 bg-white'
-                    : 'border-[#dadce0] shadow-xs bg-[#fdfdfe] hover:shadow-md'
-                }`}
-              >
-                {/* Top Badge */}
+                  plan.highlight ? 'border-[#1a73e8] shadow-lg ring-2 ring-[#1a73e8]/20 bg-white' : 'border-[#dadce0] shadow-xs bg-[#fdfdfe] hover:shadow-md'
+                }`}>
                 {plan.highlight && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1a73e8] text-white text-[11px] font-bold px-3 py-0.5 rounded-full shadow flex items-center gap-1">
                     <Sparkles className="w-3 h-3" />
@@ -245,38 +243,31 @@ export const PricingModal: React.FC<PricingModalProps> = ({
 
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                      plan.highlight 
-                        ? 'bg-[#e8f0fe] text-[#1a73e8]' 
-                        : 'bg-[#f1f3f4] text-[#5f6368]'
-                    }`}>
+                    <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${plan.highlight ? 'bg-[#e8f0fe] text-[#1a73e8]' : 'bg-[#f1f3f4] text-[#5f6368]'}`}>
                       {plan.badge}
                     </span>
                   </div>
+                  <h3 className="font-['Google_Sans',sans-serif] text-lg font-bold text-[#202124]">{plan.name}</h3>
+                  <p className="text-xs text-[#5f6368] mt-1 min-h-[32px]">{plan.description}</p>
 
-                  <h3 className="font-['Google_Sans',sans-serif] text-lg font-bold text-[#202124]">
-                    {plan.name}
-                  </h3>
-                  <p className="text-xs text-[#5f6368] mt-1 min-h-[32px]">
-                    {plan.description}
-                  </p>
-
-                  {/* Price */}
                   <div className="my-4 pb-4 border-b border-[#dadce0]">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-extrabold text-[#202124]">£{price}</span>
+                    <div className="flex items-baseline gap-2">
+                      {discounted && (
+                        <span className="text-lg font-bold text-[#9aa0a6] line-through">£{basePrice}</span>
+                      )}
+                      <span className={`text-3xl font-extrabold ${discounted ? 'text-[#34a853]' : 'text-[#202124]'}`}>£{finalPrice}</span>
                       <span className="text-xs text-[#5f6368]">/ month</span>
                     </div>
+                    {discounted && promoApplied && (
+                      <span className="text-[11px] font-bold text-[#34a853]">{promoApplied.label} applied ✓</span>
+                    )}
                     <span className="text-[11px] text-[#5f6368] block mt-0.5">
-                      {billingCycle === 'annual' ? 'Billed annually (2 months free)' : 'Billed monthly'}
+                      {billingCycle === 'annual' ? `Billed annually — £${finalPrice * 12}/year (2 months free)` : 'Billed monthly'}
                     </span>
                   </div>
 
-                  {/* Features List */}
                   <div className="space-y-2.5">
-                    <span className="text-[11px] font-bold text-[#3c4043] uppercase tracking-wider block">
-                      Included Features:
-                    </span>
+                    <span className="text-[11px] font-bold text-[#3c4043] uppercase tracking-wider block">Included Features:</span>
                     {plan.features.map((f, idx) => (
                       <div key={idx} className="flex items-start gap-2 text-xs text-[#3c4043]">
                         <Check className="w-3.5 h-3.5 text-[#137333] flex-shrink-0 mt-0.5 stroke-[2.5]" />
@@ -286,42 +277,88 @@ export const PricingModal: React.FC<PricingModalProps> = ({
                   </div>
                 </div>
 
-                {/* Card Action CTA */}
                 <div className="p-5 pt-0">
                   <button
                     onClick={() => handleGetPlan(plan)}
                     className={`w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-xs flex items-center justify-center gap-1.5 ${
-                      plan.highlight
-                        ? 'bg-[#1a73e8] hover:bg-[#1557b0] text-white shadow-md'
-                        : 'bg-white hover:bg-[#f1f3f4] text-[#1a73e8] border border-[#dadce0]'
-                    }`}
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    <span>Get {plan.name}</span>
+                      plan.highlight ? 'bg-[#003087] hover:bg-[#002063] text-white shadow-md' : 'bg-white hover:bg-[#f1f3f4] text-[#003087] border border-[#dadce0]'
+                    }`}>
+                    {/* PayPal logo mark */}
+                    <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M7.076 21.337H2.47a.641.641 0 0 1-.633-.74L4.944.901C5.026.382 5.474 0 5.998 0h7.46c2.57 0 4.578.543 5.69 1.81 1.01 1.15 1.304 2.42 1.012 4.287-.023.143-.047.288-.077.437-.983 5.05-4.349 6.797-8.647 6.797h-2.19c-.524 0-.968.382-1.05.9l-1.12 7.106zm14.146-14.42a3.35 3.35 0 0 0-.607-.541c-.013.076-.026.175-.041.254-.93 4.778-4.005 7.201-9.138 7.201h-2.19a.563.563 0 0 0-.556.479l-1.187 7.527h-.506l-.24 1.516a.56.56 0 0 0 .554.647h3.882c.46 0 .85-.334.922-.788.06-.26.76-4.852.816-5.09a.932.932 0 0 1 .923-.788h.58c3.76 0 6.705-1.528 7.565-5.946.36-1.847.174-3.388-.777-4.471z"/>
+                    </svg>
+                    <span>Pay with PayPal</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
-                  {STRIPE_CONFIGURED && (
-                    <p className="text-center text-[10px] text-[#5f6368] mt-1.5 flex items-center justify-center gap-1">
-                      <Lock className="w-3 h-3" />
-                      Secure checkout via Stripe
-                    </p>
-                  )}
+                  <p className="text-center text-[10px] text-[#5f6368] mt-1.5 flex items-center justify-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    Secure payment via PayPal
+                  </p>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Footer info */}
+        {/* Promo Code Section */}
+        <div className="px-6 py-3 border-t border-[#dadce0] bg-[#f8fafd]">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <button onClick={() => setShowPromo(p => !p)}
+              className="flex items-center gap-1.5 text-xs text-[#1a73e8] hover:underline font-medium">
+              <Tag className="w-3.5 h-3.5" />
+              {showPromo ? 'Hide promo code' : 'Have a special discount key?'}
+            </button>
+            {onOpenDiscountKeys && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenDiscountKeys();
+                }}
+                className="text-xs text-[#5f6368] hover:text-[#1a73e8] flex items-center gap-1 hover:underline font-medium"
+              >
+                <Tag className="w-3 h-3 text-[#1a73e8]" />
+                <span>Manage Discount Keys</span>
+              </button>
+            )}
+          </div>
+          {showPromo && (
+            <div className="mt-2.5 flex items-center gap-2">
+              <input
+                type="text"
+                value={promoCode}
+                onChange={(e) => { setPromoCode(e.target.value.toUpperCase()); setPromoError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && applyPromo()}
+                placeholder="Enter code e.g. LEGAL50"
+                className="flex-1 px-3 py-2 text-xs border border-[#dadce0] rounded-lg focus:outline-none focus:border-[#1a73e8] bg-white uppercase tracking-widest font-mono"
+              />
+              <button onClick={applyPromo}
+                className="px-3 py-2 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1">
+                <Gift className="w-3.5 h-3.5" />
+                Apply
+              </button>
+              {promoApplied && (
+                <button onClick={() => { setPromoApplied(null); setPromoCode(''); }}
+                  className="px-2 py-2 text-[#d93025] hover:bg-[#fce8e6] rounded-lg transition-colors text-xs">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+          {promoError && <p className="text-xs text-[#d93025] mt-1.5">{promoError}</p>}
+          {promoApplied && <p className="text-xs text-[#34a853] mt-1.5 font-semibold">✓ {promoApplied.label} — {promoApplied.discountPct}% off applied!</p>}
+        </div>
+
+        {/* Footer */}
         <div className="px-6 py-4 border-t border-[#dadce0] bg-[#f8fafd] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#5f6368]">
           <div className="flex items-center gap-2">
             <Lock className="w-3.5 h-3.5 text-[#1a73e8]" />
             <span>Need an invoice or custom Solicitor Chamber quote?</span>
           </div>
           <div className="flex items-center gap-3 font-medium text-[#1a73e8]">
-            <span className="flex items-center gap-1">
-              <Mail className="w-3.5 h-3.5" />sales@docvault-legal.com
-            </span>
+            <a href={`mailto:${OWNER_EMAIL}`} className="flex items-center gap-1 hover:underline">
+              <Mail className="w-3.5 h-3.5" />{OWNER_EMAIL}
+            </a>
           </div>
         </div>
       </div>

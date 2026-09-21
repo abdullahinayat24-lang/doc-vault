@@ -28,7 +28,10 @@ import {
   exportAsPdf,
   exportAsJpg,
   detectFileType,
-  idbGetDocuments
+  idbGetDocuments,
+  initTrial,
+  getTrialStatus,
+  getPromoCodes
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -43,7 +46,11 @@ import { NewClientModal } from './components/Modals/NewClientModal';
 import { UploadDocumentsModal } from './components/Modals/UploadDocumentsModal';
 import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
-import { ArrowLeft } from 'lucide-react';
+import { ChangePinModal } from './components/Modals/ChangePinModal';
+import { DiscountKeysModal } from './components/Modals/DiscountKeysModal';
+import { ArrowLeft, ShieldAlert, Sparkles, KeyRound } from 'lucide-react';
+
+
 
 export function App() {
   // Check if viewing a shared link (?share=...)
@@ -78,6 +85,36 @@ export function App() {
   const [isNewClientOpen, setIsNewClientOpen] = useState<boolean>(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
   const [isPricingOpen, setIsPricingOpen] = useState<boolean>(false);
+  const [isChangePinOpen, setIsChangePinOpen] = useState<boolean>(false);
+  const [isDiscountKeysOpen, setIsDiscountKeysOpen] = useState<boolean>(false);
+
+  // Start free trial on first launch
+  useEffect(() => { initTrial(); }, []);
+
+  // Trial status & Lockout checks (owner rana.abdullah.inayat@gmail.com is exempt)
+  const trial = getTrialStatus();
+  const isOwner = user?.email?.toLowerCase() === 'rana.abdullah.inayat@gmail.com';
+  const [trialUnlocked, setTrialUnlocked] = useState<boolean>(() => {
+    return localStorage.getItem('docvault_trial_unlocked') === 'true';
+  });
+  const [trialUnlockKey, setTrialUnlockKey] = useState('');
+  const [trialUnlockError, setTrialUnlockError] = useState('');
+
+  const handleUnlockTrial = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanKey = trialUnlockKey.trim().toUpperCase();
+    const masterKey = 'LEGAL-VAULT-2026';
+    const promoCodes = getPromoCodes();
+    const match = promoCodes.find(c => c.code === cleanKey && c.active && c.discountPct === 100);
+
+    if (cleanKey === masterKey || cleanKey === 'VIP100' || match) {
+      localStorage.setItem('docvault_trial_unlocked', 'true');
+      setTrialUnlocked(true);
+      setTrialUnlockError('');
+    } else {
+      setTrialUnlockError('Invalid license or VIP key. Please contact rana.abdullah.inayat@gmail.com');
+    }
+  };
 
   // Hydrate full documents from IndexedDB on startup (unlimited storage quota)
   useEffect(() => {
@@ -717,6 +754,8 @@ export function App() {
             setUser(null);
           }
         }}
+        onChangePinClick={() => setIsChangePinOpen(true)}
+        onOpenDiscountKeys={() => setIsDiscountKeysOpen(true)}
         selectedCount={selectedDocIds.length}
         activeDocument={activeDoc}
         onExportSelected={() => exportMultipleDocuments(selectedDocuments, `${activeTab.name}_Selected.zip`, folders)}
@@ -878,9 +917,84 @@ export function App() {
       <PricingModal
         isOpen={isPricingOpen}
         onClose={() => setIsPricingOpen(false)}
+        onOpenDiscountKeys={() => setIsDiscountKeysOpen(true)}
       />
+
+      <ChangePinModal
+        isOpen={isChangePinOpen}
+        onClose={() => setIsChangePinOpen(false)}
+      />
+
+      <DiscountKeysModal
+        isOpen={isDiscountKeysOpen}
+        onClose={() => setIsDiscountKeysOpen(false)}
+      />
+
+      {/* FOOLPROOF 30-DAY TRIAL EXPIRED LOCKOUT OVERLAY */}
+      {trial.isExpired && !isOwner && !trialUnlocked && (
+        <div className="fixed inset-0 z-50 bg-[#202124]/85 backdrop-blur-md flex items-center justify-center p-4 select-none animate-in fade-in duration-200">
+          <div className="bg-white border border-[#dadce0] rounded-3xl shadow-2xl max-w-md w-full p-8 flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-2xl bg-[#fce8e6] text-[#d93025] flex items-center justify-center mb-4 ring-4 ring-red-50">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+
+            <h2 className="font-['Google_Sans',sans-serif] text-xl font-bold text-[#202124]">
+              30-Day Free Trial Ended
+            </h2>
+            <p className="text-xs text-[#5f6368] mt-2 leading-relaxed">
+              Your 30-day evaluation period for DocVault has concluded. All client case files and documents remain completely safe and encrypted in your local vault.
+            </p>
+
+            <div className="w-full mt-6 space-y-3">
+              <button
+                type="button"
+                onClick={() => setIsPricingOpen(true)}
+                className="w-full py-3 px-4 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold text-sm rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Choose a Subscription Plan (PayPal)</span>
+              </button>
+
+              <form onSubmit={handleUnlockTrial} className="mt-4 pt-4 border-t border-[#f1f3f4] space-y-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#5f6368] text-left">
+                  Have a VIP or License Key?
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={trialUnlockKey}
+                    onChange={(e) => {
+                      setTrialUnlockKey(e.target.value.toUpperCase());
+                      setTrialUnlockError('');
+                    }}
+                    placeholder="e.g. VIP100 or License Key"
+                    className="flex-1 px-3 py-2 text-xs font-mono uppercase font-bold border border-[#dadce0] rounded-xl focus:outline-none focus:border-[#1a73e8]"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-[#202124] hover:bg-black text-white text-xs font-semibold rounded-xl transition-colors"
+                  >
+                    Unlock
+                  </button>
+                </div>
+                {trialUnlockError && (
+                  <p className="text-xs text-[#d93025] text-left">{trialUnlockError}</p>
+                )}
+              </form>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-[#f1f3f4] text-xs text-[#5f6368]">
+              Contact administrator:{' '}
+              <a href="mailto:rana.abdullah.inayat@gmail.com" className="text-[#1a73e8] font-medium hover:underline">
+                rana.abdullah.inayat@gmail.com
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 export default App;

@@ -142,6 +142,149 @@ export const setLockPin = (pin: string) => {
   localStorage.setItem(PIN_KEY, pin);
 };
 
+// ─── PIN Brute-Force Lockout ────────────────────────────────────────────────
+const PIN_ATTEMPTS_KEY   = 'docvault_pin_attempts';
+const PIN_LOCKOUT_KEY    = 'docvault_pin_lockout_until';
+const MAX_PIN_ATTEMPTS   = 5;
+const LOCKOUT_MINUTES    = 30;
+
+export interface PinAttemptStatus {
+  isLockedOut: boolean;
+  lockoutMinutesLeft: number;
+  attemptsLeft: number;
+}
+
+export const getPinAttemptStatus = (): PinAttemptStatus => {
+  const lockoutUntil = parseInt(localStorage.getItem(PIN_LOCKOUT_KEY) || '0', 10);
+  const now = Date.now();
+  if (lockoutUntil && now < lockoutUntil) {
+    return {
+      isLockedOut: true,
+      lockoutMinutesLeft: Math.ceil((lockoutUntil - now) / 60000),
+      attemptsLeft: 0,
+    };
+  }
+  // Clear expired lockout
+  if (lockoutUntil && now >= lockoutUntil) {
+    localStorage.removeItem(PIN_LOCKOUT_KEY);
+    localStorage.removeItem(PIN_ATTEMPTS_KEY);
+  }
+  const attempts = parseInt(localStorage.getItem(PIN_ATTEMPTS_KEY) || '0', 10);
+  return {
+    isLockedOut: false,
+    lockoutMinutesLeft: 0,
+    attemptsLeft: Math.max(0, MAX_PIN_ATTEMPTS - attempts),
+  };
+};
+
+export const recordFailedPinAttempt = (): PinAttemptStatus => {
+  const attempts = parseInt(localStorage.getItem(PIN_ATTEMPTS_KEY) || '0', 10) + 1;
+  localStorage.setItem(PIN_ATTEMPTS_KEY, String(attempts));
+  if (attempts >= MAX_PIN_ATTEMPTS) {
+    const lockUntil = Date.now() + LOCKOUT_MINUTES * 60 * 1000;
+    localStorage.setItem(PIN_LOCKOUT_KEY, String(lockUntil));
+    return { isLockedOut: true, lockoutMinutesLeft: LOCKOUT_MINUTES, attemptsLeft: 0 };
+  }
+  return { isLockedOut: false, lockoutMinutesLeft: 0, attemptsLeft: MAX_PIN_ATTEMPTS - attempts };
+};
+
+export const clearPinAttempts = () => {
+  localStorage.removeItem(PIN_ATTEMPTS_KEY);
+  localStorage.removeItem(PIN_LOCKOUT_KEY);
+};
+
+// ─── Trial System ────────────────────────────────────────────────────────────
+const TRIAL_KEY       = 'docvault_trial_start';
+const TRIAL_HASH_KEY  = 'docvault_trial_hash';
+const TRIAL_DAYS      = 30;
+
+const simpleHash = (str: string): string => {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h = (Math.imul(31, h) + ch) | 0;
+  }
+  return Math.abs(h).toString(36);
+};
+
+export const initTrial = () => {
+  if (localStorage.getItem(TRIAL_KEY)) return; // Already started
+  const start = Date.now().toString();
+  const hash  = simpleHash(start + 'docvault-secret');
+  localStorage.setItem(TRIAL_KEY, start);
+  localStorage.setItem(TRIAL_HASH_KEY, hash);
+};
+
+export interface TrialStatus {
+  isActive: boolean;
+  isExpired: boolean;
+  daysLeft: number;
+  startDate: Date | null;
+  tampered: boolean;
+}
+
+export const getTrialStatus = (): TrialStatus => {
+  const raw  = localStorage.getItem(TRIAL_KEY);
+  const hash = localStorage.getItem(TRIAL_HASH_KEY);
+
+  if (!raw) {
+    return { isActive: false, isExpired: false, daysLeft: 0, startDate: null, tampered: false };
+  }
+
+  // Tamper check
+  const expectedHash = simpleHash(raw + 'docvault-secret');
+  if (hash !== expectedHash) {
+    return { isActive: false, isExpired: true, daysLeft: 0, startDate: null, tampered: true };
+  }
+
+  const start     = parseInt(raw, 10);
+  const now       = Date.now();
+  const elapsed   = now - start;
+  const daysUsed  = Math.floor(elapsed / (1000 * 60 * 60 * 24));
+  const daysLeft  = Math.max(0, TRIAL_DAYS - daysUsed);
+  const isExpired = daysLeft === 0;
+
+  return {
+    isActive:  !isExpired,
+    isExpired,
+    daysLeft,
+    startDate: new Date(start),
+    tampered: false,
+  };
+};
+
+// ─── Promo Codes (admin-managed) ─────────────────────────────────────────────
+const PROMO_KEY = 'docvault_promo_codes';
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  label: string;
+  discountPct: number;
+  active: boolean;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export const getPromoCodes = (): PromoCode[] => {
+  try {
+    return JSON.parse(localStorage.getItem(PROMO_KEY) || '[]');
+  } catch { return []; }
+};
+
+export const savePromoCode = (promo: PromoCode) => {
+  const codes = getPromoCodes();
+  const idx = codes.findIndex(c => c.id === promo.id);
+  if (idx >= 0) codes[idx] = promo; else codes.push(promo);
+  localStorage.setItem(PROMO_KEY, JSON.stringify(codes));
+};
+
+export const deletePromoCode = (id: string) => {
+  const codes = getPromoCodes().filter(c => c.id !== id);
+  localStorage.setItem(PROMO_KEY, JSON.stringify(codes));
+};
+
+
 export const getShares = (): ShareRecord[] => {
   const saved = localStorage.getItem(SHARES_KEY);
   if (saved) {
