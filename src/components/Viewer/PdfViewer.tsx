@@ -159,26 +159,26 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           onClick={() => setViewMode('canvas')}
           className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
             viewMode === 'canvas'
-              ? 'bg-[#1a73e8] text-white shadow-xs'
+              ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
               : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
           }`}
-          title="Interactive canvas with zoom, pan, and rotate controls"
+          title="Single page interactive canvas with zoom, pan, and rotate controls"
         >
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Interactive Canvas</span>
+          <span>Single Page</span>
         </button>
 
         <button
           onClick={() => setViewMode('native')}
           className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 ${
             viewMode === 'native'
-              ? 'bg-[#1a73e8] text-white shadow-xs'
+              ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
               : 'text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
           }`}
-          title="Native browser PDF reader with text selection and print"
+          title="Continuous vertical scroll view through all pages with mouse wheel"
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>Native Reader</span>
+          <span>Continuous Scroll View</span>
         </button>
       </div>
 

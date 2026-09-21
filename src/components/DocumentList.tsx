@@ -19,7 +19,10 @@ import {
   Upload,
   Filter,
   Eye,
-  CreditCard
+  CreditCard,
+  Edit2,
+  Check,
+  X
 } from 'lucide-react';
 import { DocumentItem, FileType, DocumentStatus } from '../types';
 
@@ -39,6 +42,7 @@ interface DocumentListProps {
   onExportDocument: (doc: DocumentItem, e: React.MouseEvent) => void;
   onOpenUploadModal?: () => void;
   onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
+  onRenameDocument?: (id: string, newName: string) => void;
   tabTitle: string;
 }
 
@@ -58,11 +62,15 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onExportDocument,
   onOpenUploadModal,
   onAddPageToDoc,
+  onRenameDocument,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const slotFileInputRef = useRef<HTMLInputElement>(null);
   const [targetSlotId, setTargetSlotId] = useState<string | null>(null);
+
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [editingDocName, setEditingDocName] = useState<string>('');
 
   const [isDragging, setIsDragging] = useState(false);
   const [showCreateSlotModal, setShowCreateSlotModal] = useState(false);
@@ -159,6 +167,19 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       setNewSlotTitle('');
       setShowCreateSlotModal(false);
     }
+  };
+
+  const handleStartEditing = (doc: DocumentItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingDocId(doc.id);
+    setEditingDocName(doc.name);
+  };
+
+  const handleSaveDocName = (docId: string) => {
+    if (editingDocName.trim() && onRenameDocument) {
+      onRenameDocument(docId, editingDocName.trim());
+    }
+    setEditingDocId(null);
   };
 
   // Filter documents based on status
@@ -461,14 +482,62 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
                 {/* Document Information */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p 
-                      className="text-xs sm:text-sm font-semibold truncate leading-tight flex-1 text-[#202124]"
-                      title={doc.name}
+                  {editingDocId === doc.id ? (
+                    <div 
+                      className="flex items-center gap-1.5 w-full my-0.5" 
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      {doc.name}
-                    </p>
-                  </div>
+                      <input
+                        type="text"
+                        value={editingDocName}
+                        onChange={(e) => setEditingDocName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveDocName(doc.id);
+                          if (e.key === 'Escape') setEditingDocId(null);
+                        }}
+                        autoFocus
+                        className="w-full text-xs font-semibold px-2 py-1 bg-white border border-[#1a73e8] rounded-md shadow-xs outline-none text-[#202124]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveDocName(doc.id)}
+                        className="p-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded transition-colors flex-shrink-0"
+                        title="Save Name (Enter)"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingDocId(null)}
+                        className="p-1 hover:bg-black/5 text-[#5f6368] rounded transition-colors flex-shrink-0"
+                        title="Cancel (Esc)"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 group/name">
+                      <p 
+                        className="text-xs sm:text-sm font-semibold truncate leading-tight flex-1 text-[#202124]"
+                        title={`${doc.name} (Double-click to rename)`}
+                        onDoubleClick={(e) => {
+                          if (onRenameDocument) handleStartEditing(doc, e);
+                        }}
+                      >
+                        {doc.name}
+                      </p>
+                      {onRenameDocument && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleStartEditing(doc, e)}
+                          className="p-0.5 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded opacity-0 group-hover/name:opacity-100 transition-opacity"
+                          title="Rename document"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   {/* Status label badge */}
                   <div className="flex items-center gap-1.5 mt-1 flex-wrap">
@@ -550,6 +619,15 @@ export const DocumentList: React.FC<DocumentListProps> = ({
 
                   {/* Action buttons on hover */}
                   <div className="flex items-center gap-1 pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {onRenameDocument && (
+                      <button
+                        onClick={(e) => handleStartEditing(doc, e)}
+                        className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                        title="Rename Document"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                     {doc.hasFile && (
                       <>
                         <button

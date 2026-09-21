@@ -462,6 +462,29 @@ export function App() {
     );
   };
 
+  const handleRenameDocument = (id: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setDocuments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, name: trimmed, updatedAt: new Date().toISOString() } : d))
+    );
+  };
+
+  const handleRenamePage = (docId: string, pageIndex: number, newPageName: string) => {
+    const trimmed = newPageName.trim();
+    if (!trimmed) return;
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id === docId && doc.pages && doc.pages[pageIndex]) {
+          const newPages = [...doc.pages];
+          newPages[pageIndex] = { ...newPages[pageIndex], name: trimmed };
+          return { ...doc, pages: newPages, updatedAt: new Date().toISOString() };
+        }
+        return doc;
+      })
+    );
+  };
+
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this document item?')) {
@@ -639,6 +662,7 @@ export function App() {
                 }}
                 onOpenUploadModal={() => setIsUploadModalOpen(true)}
                 onAddPageToDoc={handleAddPageToDoc}
+                onRenameDocument={handleRenameDocument}
                 tabTitle={activeTab.name}
               />
             </div>
@@ -667,6 +691,8 @@ export function App() {
                 onShare={() => setIsShareOpen(true)}
                 onUpdateStatus={handleUpdateDocumentStatus}
                 onAddPageToDoc={handleAddPageToDoc}
+                onRenameDocument={handleRenameDocument}
+                onRenamePage={handleRenamePage}
                 isReadOnly={false}
               />
             </div>

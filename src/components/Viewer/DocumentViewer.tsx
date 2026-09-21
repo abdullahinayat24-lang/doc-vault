@@ -22,7 +22,10 @@ import {
   CreditCard,
   Columns,
   Layers,
-  Plus
+  Plus,
+  Edit2,
+  Check,
+  X
 } from 'lucide-react';
 import { DocumentItem, DocumentStatus } from '../../types';
 import { ImageViewer } from './ImageViewer';
@@ -38,6 +41,8 @@ interface DocumentViewerProps {
   onShare: (doc: DocumentItem) => void;
   onUpdateStatus?: (id: string, status: DocumentStatus, notes?: string) => void;
   onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
+  onRenameDocument?: (id: string, newName: string) => void;
+  onRenamePage?: (docId: string, pageIndex: number, newPageName: string) => void;
   isReadOnly?: boolean;
 }
 
@@ -49,6 +54,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onShare,
   onUpdateStatus,
   onAddPageToDoc,
+  onRenameDocument,
+  onRenamePage,
   isReadOnly = false
 }) => {
   const [zoom, setZoom] = useState<number>(1.0);
@@ -59,7 +66,9 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showPanPad, setShowPanPad] = useState<boolean>(false);
   const [activePageIndex, setActivePageIndex] = useState<number>(0);
-  const [viewLayout, setViewLayout] = useState<'single' | 'side-by-side'>('single');
+  const [viewLayout, setViewLayout] = useState<'single' | 'side-by-side' | 'scroll'>('single');
+  const [isEditingName, setIsEditingName] = useState<boolean>(false);
+  const [nameInput, setNameInput] = useState<string>('');
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const addPageInputRef = useRef<HTMLInputElement>(null);
 
@@ -72,6 +81,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setPanOffset({ x: 0, y: 0 });
     setActivePageIndex(0);
     setViewLayout('single');
+    setIsEditingName(false);
+    setNameInput(document?.name || '');
   }, [document?.id]);
 
   if (!document) {
@@ -172,14 +183,80 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       {/* Viewer Toolbar */}
       <div className="h-14 bg-white border-b border-[#dadce0] px-4 flex items-center justify-between gap-2 shadow-xs z-20 select-none">
         {/* Document Title & Status Pill */}
-        <div className="flex items-center gap-2 min-w-0 max-w-[280px] sm:max-w-md">
-          <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#f1f3f4] text-[#5f6368]">
-            {document.fileType}
-          </span>
-          <span className="font-medium text-sm text-[#202124] truncate" title={document.name}>
-            {document.name}
-          </span>
-        </div>
+        {isEditingName ? (
+          <div className="flex items-center gap-1.5 flex-1 min-w-0 max-w-sm sm:max-w-md">
+            <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#f1f3f4] text-[#5f6368] flex-shrink-0">
+              {document.fileType}
+            </span>
+            <input
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (nameInput.trim() && onRenameDocument) {
+                    onRenameDocument(document.id, nameInput.trim());
+                  }
+                  setIsEditingName(false);
+                }
+                if (e.key === 'Escape') {
+                  setIsEditingName(false);
+                }
+              }}
+              autoFocus
+              className="text-xs sm:text-sm font-semibold px-2 py-1 bg-white border border-[#1a73e8] rounded-md shadow-xs outline-none text-[#202124] flex-1 min-w-0"
+            />
+            <button
+              onClick={() => {
+                if (nameInput.trim() && onRenameDocument) {
+                  onRenameDocument(document.id, nameInput.trim());
+                }
+                setIsEditingName(false);
+              }}
+              className="p-1.5 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-md transition-colors flex-shrink-0"
+              title="Save Name (Enter)"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setIsEditingName(false)}
+              className="p-1.5 hover:bg-[#f1f3f4] text-[#5f6368] rounded-md transition-colors flex-shrink-0"
+              title="Cancel (Esc)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 min-w-0 max-w-[280px] sm:max-w-md group/title">
+            <span className="uppercase text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#f1f3f4] text-[#5f6368] flex-shrink-0">
+              {document.fileType}
+            </span>
+            <span 
+              className="font-medium text-sm text-[#202124] truncate" 
+              title={`${document.name} (Double-click to rename)`}
+              onDoubleClick={() => {
+                if (onRenameDocument && !isReadOnly) {
+                  setNameInput(document.name);
+                  setIsEditingName(true);
+                }
+              }}
+            >
+              {document.name}
+            </span>
+            {onRenameDocument && !isReadOnly && (
+              <button
+                onClick={() => {
+                  setNameInput(document.name);
+                  setIsEditingName(true);
+                }}
+                className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#f1f3f4] rounded-md transition-colors opacity-70 group-hover/title:opacity-100 flex-shrink-0"
+                title="Rename Document"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Center Viewer Controls (Zoom, Pan, Rotate, Pages) */}
         <div className="flex items-center gap-1 sm:gap-2">
@@ -413,37 +490,80 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </span>
             <div className="flex items-center gap-1.5">
               {document.pages.map((p, idx) => (
-                <button
-                  key={p.id || idx}
-                  onClick={() => {
-                    setActivePageIndex(idx);
-                    setViewLayout('single');
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                    viewLayout === 'single' && activePageIndex === idx
-                      ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
-                      : 'bg-[#f1f3f4] text-[#3c4043] hover:bg-[#e8eaed]'
-                  }`}
-                >
-                  <span>{p.name}</span>
-                </button>
+                <div key={p.id || idx} className="relative group/page flex items-center">
+                  <button
+                    onClick={() => {
+                      setActivePageIndex(idx);
+                      setViewLayout('single');
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                      viewLayout === 'single' && activePageIndex === idx
+                        ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+                        : 'bg-[#f1f3f4] text-[#3c4043] hover:bg-[#e8eaed]'
+                    }`}
+                  >
+                    <span>{p.name}</span>
+                  </button>
+                  {onRenamePage && !isReadOnly && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const newSideName = prompt('Rename this side / page:', p.name);
+                        if (newSideName !== null && newSideName.trim()) {
+                          onRenamePage(document.id, idx, newSideName.trim());
+                        }
+                      }}
+                      className="ml-0.5 p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#f1f3f4] rounded-full opacity-0 group-hover/page:opacity-100 transition-opacity"
+                      title={`Rename "${p.name}"`}
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Side-by-Side Toggle */}
+          <div className="flex items-center gap-1.5 bg-[#f1f3f4] p-1 rounded-xl border border-[#dadce0] text-xs">
+            {/* Single page */}
             <button
-              onClick={() => setViewLayout((prev) => (prev === 'single' ? 'side-by-side' : 'single'))}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                viewLayout === 'side-by-side'
-                  ? 'bg-[#e8f0fe] text-[#1a73e8] border-[#1a73e8] font-semibold'
-                  : 'bg-white text-[#5f6368] border-[#dadce0] hover:bg-[#f1f3f4]'
+              onClick={() => setViewLayout('single')}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                viewLayout === 'single'
+                  ? 'bg-white text-[#1a73e8] shadow-xs font-semibold'
+                  : 'text-[#5f6368] hover:text-[#202124]'
               }`}
-              title="View both Front & Back sides side-by-side simultaneously"
+              title="Single page view"
+            >
+              Single
+            </button>
+
+            {/* Side-by-Side */}
+            <button
+              onClick={() => setViewLayout('side-by-side')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                viewLayout === 'side-by-side'
+                  ? 'bg-white text-[#1a73e8] shadow-xs font-semibold'
+                  : 'text-[#5f6368] hover:text-[#202124]'
+              }`}
+              title="View both sides side-by-side"
             >
               <Columns className="w-3.5 h-3.5" />
-              <span>{viewLayout === 'side-by-side' ? 'Side-by-Side (Active)' : 'Side-by-Side View'}</span>
+              <span>Side-by-Side</span>
+            </button>
+
+            {/* Continuous Scroll View */}
+            <button
+              onClick={() => setViewLayout('scroll')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                viewLayout === 'scroll'
+                  ? 'bg-white text-[#1a73e8] shadow-xs font-semibold'
+                  : 'text-[#5f6368] hover:text-[#202124]'
+              }`}
+              title="Continuous vertical scroll view through all pages/sides"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Scroll View</span>
             </button>
           </div>
         </div>
@@ -451,7 +571,42 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
       {/* Main View Area */}
       <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
-        {viewLayout === 'side-by-side' && document.pages && document.pages.length >= 2 ? (
+        {/* Continuous Scroll View Layout */}
+        {viewLayout === 'scroll' && document.pages && document.pages.length > 0 ? (
+          <div className="flex-1 w-full h-full p-4 overflow-y-auto space-y-6 flex flex-col items-center">
+            {document.pages.map((page, idx) => (
+              <div
+                key={page.id || idx}
+                className="bg-white border border-[#dadce0] rounded-2xl flex flex-col overflow-hidden shadow-md max-w-3xl w-full"
+              >
+                <div className="bg-[#f8fafd] border-b border-[#dadce0] px-4 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#1a73e8] uppercase tracking-wider flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5" />
+                    {page.name || `Page ${idx + 1}`}
+                  </span>
+                  <span className="text-[10px] uppercase font-semibold text-[#5f6368] bg-[#f1f3f4] px-2 py-0.5 rounded">
+                    Page {idx + 1} of {document.pages?.length} • {page.fileType}
+                  </span>
+                </div>
+                <div className="p-4 bg-[#fdfdfe] flex items-center justify-center">
+                  {page.fileType === 'pdf' ? (
+                    <iframe
+                      src={`${page.url}#toolbar=0`}
+                      title={page.name}
+                      className="w-full h-[600px] border-0 rounded-lg"
+                    />
+                  ) : (
+                    <img
+                      src={page.url}
+                      alt={page.name}
+                      className="max-w-full max-h-[750px] object-contain rounded-lg shadow-xs"
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : viewLayout === 'side-by-side' && document.pages && document.pages.length >= 2 ? (
           <div className="flex-1 w-full h-full p-4 overflow-y-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-[450px]">
               {document.pages.slice(0, 2).map((page, idx) => (
