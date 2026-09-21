@@ -28,6 +28,7 @@ export interface CollectionTab {
   id: string;
   clientId: string; // Linked client ID
   name: string; // e.g. "Application in 2024", "Wife Application in 2025"
+  clientName?: string;
   caseNumber?: string;
   icon?: string;
   isDefault?: boolean;
