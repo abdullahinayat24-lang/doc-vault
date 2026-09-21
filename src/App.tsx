@@ -35,6 +35,7 @@ import { AuthModal } from './components/Modals/AuthModal';
 import { SharedViewer } from './components/SharedViewer';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
+import { UploadDocumentsModal } from './components/Modals/UploadDocumentsModal';
 import { AuthScreen } from './components/AuthScreen';
 import { ArrowLeft } from 'lucide-react';
 
@@ -68,6 +69,7 @@ export function App() {
   const [isShareOpen, setIsShareOpen] = useState<boolean>(false);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [isNewClientOpen, setIsNewClientOpen] = useState<boolean>(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
 
   // Sync to localStorage
   useEffect(() => {
@@ -289,6 +291,109 @@ export function App() {
     setDocuments((prev) => [...newItems, ...prev]);
     if (newItems.length > 0) {
       setActiveDocId(newItems[0].id);
+    }
+  };
+
+  const handleSaveMultiPageDoc = (
+    title: string,
+    pages: { name: string; file: File; url: string; fileType: FileType; fileSize: number }[],
+    status: DocumentStatus
+  ) => {
+    if (pages.length === 0) return;
+    const primary = pages[0];
+    const formattedPages = pages.map((p, idx) => ({
+      id: 'page_' + Math.random().toString(36).substring(2, 9),
+      name: p.name || `Page ${idx + 1}`,
+      url: p.url,
+      fileType: p.fileType,
+      fileSize: p.fileSize
+    }));
+
+    const totalSize = pages.reduce((acc, curr) => acc + curr.fileSize, 0);
+
+    const newDoc: DocumentItem = {
+      id: 'doc_' + Math.random().toString(36).substring(2, 9),
+      clientId: selectedClientId || undefined,
+      collectionId: activeTab.id,
+      name: title.trim() || primary.file.name,
+      fileType: primary.fileType,
+      fileSize: totalSize,
+      url: primary.url,
+      hasFile: true,
+      status,
+      pages: formattedPages,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setDocuments((prev) => [newDoc, ...prev]);
+    setActiveDocId(newDoc.id);
+    setMobilePane('viewer');
+  };
+
+  const handleAddPageToDoc = async (docId: string, pageName: string, file: File) => {
+    const fileType = detectFileType(file.name, file.type);
+    const url = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.readAsDataURL(file);
+    });
+
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (doc.id === docId) {
+          const existingPages = doc.pages && doc.pages.length > 0 ? doc.pages : [
+            {
+              id: 'page_orig_' + Math.random().toString(36).substring(2, 9),
+              name: 'Front Side',
+              url: doc.url,
+              fileType: doc.fileType,
+              fileSize: doc.fileSize
+            }
+          ];
+          const newPage = {
+            id: 'page_' + Math.random().toString(36).substring(2, 9),
+            name: pageName,
+            url,
+            fileType,
+            fileSize: file.size
+          };
+          return {
+            ...doc,
+            pages: [...existingPages, newPage],
+            fileSize: doc.fileSize + file.size,
+            updatedAt: new Date().toISOString()
+          };
+        }
+        return doc;
+      })
+    );
+  };
+
+  const handleBatchUpload = async (files: File[], combineIntoOne: boolean, combinedTitle?: string) => {
+    if (files.length === 0) return;
+
+    if (combineIntoOne) {
+      const pages: { name: string; file: File; url: string; fileType: FileType; fileSize: number }[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileType = detectFileType(file.name, file.type);
+        const url = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        pages.push({
+          name: i === 0 ? 'Front Side' : i === 1 ? 'Back Side' : `Page ${i + 1}`,
+          file,
+          url,
+          fileType,
+          fileSize: file.size
+        });
+      }
+      handleSaveMultiPageDoc(combinedTitle || 'Combined Document', pages, 'pending');
+    } else {
+      handleUploadFiles(files);
     }
   };
 
@@ -529,6 +634,8 @@ export function App() {
                   e.stopPropagation();
                   exportSingleDocument(doc);
                 }}
+                onOpenUploadModal={() => setIsUploadModalOpen(true)}
+                onAddPageToDoc={handleAddPageToDoc}
                 tabTitle={activeTab.name}
               />
             </div>
@@ -556,6 +663,7 @@ export function App() {
                 onExportAsJpg={exportAsJpg}
                 onShare={() => setIsShareOpen(true)}
                 onUpdateStatus={handleUpdateDocumentStatus}
+                onAddPageToDoc={handleAddPageToDoc}
                 isReadOnly={false}
               />
             </div>
@@ -591,6 +699,13 @@ export function App() {
         isOpen={isNewClientOpen}
         onClose={() => setIsNewClientOpen(false)}
         onAddClient={handleAddClient}
+      />
+
+      <UploadDocumentsModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSaveMultiPageDoc={handleSaveMultiPageDoc}
+        onBatchUploadFiles={handleBatchUpload}
       />
     </div>
   );

@@ -174,6 +174,37 @@ export const exportSingleDocument = async (doc: DocumentItem) => {
 export const exportAsPdf = async (doc: DocumentItem) => {
   if (!doc.hasFile || !doc.url) return;
 
+  // If multi-page document (e.g. Front & Back)
+  if (doc.pages && doc.pages.length > 1) {
+    try {
+      let pdf: jsPDF | null = null;
+      for (let i = 0; i < doc.pages.length; i++) {
+        const page = doc.pages[i];
+        if (page.fileType === 'pdf') continue;
+        const img = await loadImage(page.url);
+        const orientation = img.width > img.height ? 'landscape' : 'portrait';
+        if (!pdf) {
+          pdf = new jsPDF({
+            orientation,
+            unit: 'px',
+            format: [img.width, img.height]
+          });
+          pdf.addImage(img, 'PNG', 0, 0, img.width, img.height);
+        } else {
+          pdf.addPage([img.width, img.height], orientation);
+          pdf.addImage(img, 'PNG', 0, 0, img.width, img.height);
+        }
+      }
+      if (pdf) {
+        const pdfName = doc.name.replace(/\.[^/.]+$/, "") + ".pdf";
+        pdf.save(pdfName);
+        return;
+      }
+    } catch (err) {
+      console.warn('Multi-page PDF conversion fallback:', err);
+    }
+  }
+
   if (doc.fileType === 'pdf') {
     return exportSingleDocument(doc);
   }

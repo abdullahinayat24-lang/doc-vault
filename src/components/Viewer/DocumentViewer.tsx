@@ -18,7 +18,11 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  FileDown
+  FileDown,
+  CreditCard,
+  Columns,
+  Layers,
+  Plus
 } from 'lucide-react';
 import { DocumentItem, DocumentStatus } from '../../types';
 import { ImageViewer } from './ImageViewer';
@@ -33,6 +37,7 @@ interface DocumentViewerProps {
   onExportAsJpg?: (doc: DocumentItem) => void;
   onShare: (doc: DocumentItem) => void;
   onUpdateStatus?: (id: string, status: DocumentStatus, notes?: string) => void;
+  onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
   isReadOnly?: boolean;
 }
 
@@ -43,6 +48,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onExportAsJpg,
   onShare,
   onUpdateStatus,
+  onAddPageToDoc,
   isReadOnly = false
 }) => {
   const [zoom, setZoom] = useState<number>(1.0);
@@ -52,7 +58,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showPanPad, setShowPanPad] = useState<boolean>(false);
+  const [activePageIndex, setActivePageIndex] = useState<number>(0);
+  const [viewLayout, setViewLayout] = useState<'single' | 'side-by-side'>('single');
   const viewerContainerRef = useRef<HTMLDivElement>(null);
+  const addPageInputRef = useRef<HTMLInputElement>(null);
 
   // Reset controls when document changes
   useEffect(() => {
@@ -61,6 +70,8 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     setCurrentPage(1);
     setTotalPages(1);
     setPanOffset({ x: 0, y: 0 });
+    setActivePageIndex(0);
+    setViewLayout('single');
   }, [document?.id]);
 
   if (!document) {
@@ -328,6 +339,39 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             </div>
           )}
 
+          {/* Add Page / Back Side Button */}
+          {document.hasFile && onAddPageToDoc && (
+            <>
+              <input
+                ref={addPageInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,.pdf"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    const file = e.target.files[0];
+                    const defaultPageName = (!document.pages || document.pages.length <= 1) 
+                      ? 'Back Side' 
+                      : `Page ${(document.pages?.length || 0) + 1}`;
+                    const name = prompt('Label for this side / page:', defaultPageName);
+                    if (name !== null) {
+                      onAddPageToDoc(document.id, name.trim() || defaultPageName, file);
+                    }
+                    if (addPageInputRef.current) addPageInputRef.current.value = '';
+                  }
+                }}
+                className="hidden"
+              />
+              <button
+                onClick={() => addPageInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] border border-[#1a73e8]/30 rounded-lg transition-colors shadow-xs"
+                title="Attach Back Side or additional page to this document"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">+ Add {(!document.pages || document.pages.length <= 1) ? 'Back Side' : 'Page'}</span>
+              </button>
+            </>
+          )}
+
           {!isReadOnly && (
             <button
               onClick={() => onShare(document)}
@@ -359,9 +403,91 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         </div>
       </div>
 
+      {/* Multi-Page / 2-Sided Switcher Bar */}
+      {document.pages && document.pages.length > 1 && (
+        <div className="bg-white border-b border-[#dadce0] px-4 py-2 flex items-center justify-between gap-2 overflow-x-auto shadow-xs z-10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-[#5f6368] uppercase tracking-wider flex items-center gap-1">
+              <CreditCard className="w-3.5 h-3.5 text-[#1a73e8]" />
+              Sides / Pages ({document.pages.length}):
+            </span>
+            <div className="flex items-center gap-1.5">
+              {document.pages.map((p, idx) => (
+                <button
+                  key={p.id || idx}
+                  onClick={() => {
+                    setActivePageIndex(idx);
+                    setViewLayout('single');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                    viewLayout === 'single' && activePageIndex === idx
+                      ? 'bg-[#1a73e8] text-white shadow-xs font-semibold'
+                      : 'bg-[#f1f3f4] text-[#3c4043] hover:bg-[#e8eaed]'
+                  }`}
+                >
+                  <span>{p.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Side-by-Side Toggle */}
+            <button
+              onClick={() => setViewLayout((prev) => (prev === 'single' ? 'side-by-side' : 'single'))}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                viewLayout === 'side-by-side'
+                  ? 'bg-[#e8f0fe] text-[#1a73e8] border-[#1a73e8] font-semibold'
+                  : 'bg-white text-[#5f6368] border-[#dadce0] hover:bg-[#f1f3f4]'
+              }`}
+              title="View both Front & Back sides side-by-side simultaneously"
+            >
+              <Columns className="w-3.5 h-3.5" />
+              <span>{viewLayout === 'side-by-side' ? 'Side-by-Side (Active)' : 'Side-by-Side View'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main View Area */}
       <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
-        {!document.hasFile ? (
+        {viewLayout === 'side-by-side' && document.pages && document.pages.length >= 2 ? (
+          <div className="flex-1 w-full h-full p-4 overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full min-h-[450px]">
+              {document.pages.slice(0, 2).map((page, idx) => (
+                <div
+                  key={page.id || idx}
+                  className="bg-white border border-[#dadce0] rounded-2xl flex flex-col overflow-hidden shadow-xs h-full"
+                >
+                  <div className="bg-[#f8fafd] border-b border-[#dadce0] px-4 py-2.5 flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#1a73e8] uppercase tracking-wider flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      {page.name}
+                    </span>
+                    <span className="text-[10px] uppercase font-semibold text-[#5f6368] bg-[#f1f3f4] px-2 py-0.5 rounded">
+                      {page.fileType}
+                    </span>
+                  </div>
+                  <div className="flex-1 p-3 bg-[#f8fafd] flex items-center justify-center overflow-hidden">
+                    {page.fileType === 'pdf' ? (
+                      <iframe
+                        src={`${page.url}#toolbar=0`}
+                        title={page.name}
+                        className="w-full h-full border-0 rounded-lg"
+                      />
+                    ) : (
+                      <img
+                        src={page.url}
+                        alt={page.name}
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-xs"
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : !document.hasFile ? (
           <div className="p-8 text-center bg-white border border-[#ea4335] rounded-3xl shadow-md max-w-md animate-in fade-in duration-200">
             <div className="w-16 h-16 rounded-2xl bg-[#fce8e6] text-[#d93025] flex items-center justify-center mx-auto mb-4 ring-4 ring-red-50">
               <AlertCircle className="w-8 h-8" />
@@ -377,49 +503,56 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               <p><strong>Status:</strong> Marked in RED (Action Required)</p>
             </div>
           </div>
-        ) : document.fileType === 'pdf' ? (
-          <PdfViewer
-            url={document.url}
-            name={document.name}
-            zoom={zoom}
-            rotation={rotation}
-            currentPage={currentPage}
-            onTotalPagesChange={setTotalPages}
-            panOffset={panOffset}
-            onPanChange={setPanOffset}
-          />
-        ) : ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(document.fileType) ? (
-          <ImageViewer
-            url={document.url}
-            name={document.name}
-            zoom={zoom}
-            rotation={rotation}
-            panOffset={panOffset}
-            onPanChange={setPanOffset}
-          />
-        ) : document.fileType === 'epub' ? (
-          <EpubViewer
-            url={document.url}
-            name={document.name}
-            zoom={zoom}
-          />
-        ) : document.fileType === 'txt' ? (
-          <TextViewer
-            url={document.url}
-            name={document.name}
-            zoom={zoom}
-          />
-        ) : (
-          <div className="p-8 text-center bg-white border border-[#dadce0] rounded-2xl shadow-sm max-w-sm">
-            <p className="font-medium text-sm text-[#202124] mb-2">{document.name}</p>
-            <button
-              onClick={() => onExport(document)}
-              className="px-4 py-2 bg-[#1a73e8] text-white text-xs font-medium rounded-lg shadow-sm"
-            >
-              Download File
-            </button>
-          </div>
-        )}
+        ) : (() => {
+          const hasPages = Boolean(document.pages && document.pages.length > 0);
+          const activePage = hasPages
+            ? (document.pages![activePageIndex] || document.pages![0])
+            : { name: document.name, url: document.url, fileType: document.fileType };
+
+          return activePage.fileType === 'pdf' ? (
+            <PdfViewer
+              url={activePage.url}
+              name={`${document.name} - ${activePage.name}`}
+              zoom={zoom}
+              rotation={rotation}
+              currentPage={currentPage}
+              onTotalPagesChange={setTotalPages}
+              panOffset={panOffset}
+              onPanChange={setPanOffset}
+            />
+          ) : ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(activePage.fileType) ? (
+            <ImageViewer
+              url={activePage.url}
+              name={`${document.name} - ${activePage.name}`}
+              zoom={zoom}
+              rotation={rotation}
+              panOffset={panOffset}
+              onPanChange={setPanOffset}
+            />
+          ) : activePage.fileType === 'epub' ? (
+            <EpubViewer
+              url={activePage.url}
+              name={`${document.name} - ${activePage.name}`}
+              zoom={zoom}
+            />
+          ) : activePage.fileType === 'txt' ? (
+            <TextViewer
+              url={activePage.url}
+              name={`${document.name} - ${activePage.name}`}
+              zoom={zoom}
+            />
+          ) : (
+            <div className="p-8 text-center bg-white border border-[#dadce0] rounded-2xl shadow-sm max-w-sm">
+              <p className="font-medium text-sm text-[#202124] mb-2">{document.name}</p>
+              <button
+                onClick={() => onExport(document)}
+                className="px-4 py-2 bg-[#1a73e8] text-white text-xs font-medium rounded-lg shadow-sm"
+              >
+                Download File
+              </button>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

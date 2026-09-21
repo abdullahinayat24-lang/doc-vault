@@ -36,6 +36,14 @@ export interface CollectionTab {
   updatedAt?: string;
 }
 
+export interface DocumentPage {
+  id: string;
+  name: string; // e.g. "Front Side", "Back Side", "Page 1", "Page 2"
+  url: string;
+  fileType: FileType;
+  fileSize?: number;
+}
+
 export interface DocumentItem {
   id: string;
   clientId?: string;
@@ -43,7 +51,7 @@ export interface DocumentItem {
   name: string;
   fileType: FileType;
   fileSize: number; // in bytes
-  url: string; // Object URL, base64 data URL, or remote Supabase storage URL
+  url: string; // Primary URL (Page 1 / Front Side)
   hasFile: boolean; // false if it is a missing document placeholder
   status: DocumentStatus; // 'missing' | 'disapproved' -> Red, 'approved' -> Green, 'pending' -> White
   notes?: string;
@@ -52,6 +60,7 @@ export interface DocumentItem {
   updatedAt?: string;
   description?: string;
   uploadedBy?: 'solicitor' | 'client';
+  pages?: DocumentPage[]; // Multi-page / multi-sided support (e.g. Front & Back)
 }
 
 export type ShareScope = 'single' | 'multiple' | 'collection';

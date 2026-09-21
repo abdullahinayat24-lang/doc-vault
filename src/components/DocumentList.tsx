@@ -17,7 +17,9 @@ import {
   AlertCircle,
   FilePlus2,
   Upload,
-  Filter
+  Filter,
+  Eye,
+  CreditCard
 } from 'lucide-react';
 import { DocumentItem, FileType, DocumentStatus } from '../types';
 
@@ -35,6 +37,8 @@ interface DocumentListProps {
   onDeleteDocument: (id: string, e: React.MouseEvent) => void;
   onShareDocument: (doc: DocumentItem, e: React.MouseEvent) => void;
   onExportDocument: (doc: DocumentItem, e: React.MouseEvent) => void;
+  onOpenUploadModal?: () => void;
+  onAddPageToDoc?: (docId: string, pageName: string, file: File) => void;
   tabTitle: string;
 }
 
@@ -52,6 +56,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onDeleteDocument,
   onShareDocument,
   onExportDocument,
+  onOpenUploadModal,
+  onAddPageToDoc,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -197,12 +203,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         <div className="flex items-center gap-2">
           {/* Upload Button */}
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              if (onOpenUploadModal) {
+                onOpenUploadModal();
+              } else {
+                fileInputRef.current?.click();
+              }
+            }}
             className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-full font-medium text-xs sm:text-sm shadow hover:shadow-md transition-all"
-            title="Upload completed file"
+            title="Upload documents (supports 2-sided ID card Front & Back and batch files)"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Upload Document</span>
+            <span>Upload Documents</span>
           </button>
 
           {/* Create Document Requirement Slot (RED if not uploaded) */}
@@ -459,8 +471,14 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   </div>
 
                   {/* Status label badge */}
-                  <div className="flex items-center gap-1.5 mt-1">
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                     {statusBadge}
+                    {doc.pages && doc.pages.length > 1 && (
+                      <span className="text-[10px] font-bold bg-[#e8f0fe] text-[#1a73e8] px-1.5 py-0.2 rounded border border-[#1a73e8]/20 flex items-center gap-0.5">
+                        <CreditCard className="w-2.5 h-2.5" />
+                        {doc.pages.length} Sides
+                      </span>
+                    )}
                     {doc.hasFile && (
                       <span className="text-[11px] text-[#5f6368]">
                         • {formatFileSize(doc.fileSize)}
