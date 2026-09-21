@@ -867,10 +867,9 @@ export function App() {
       if (!doc) return prev;
 
       // Find all sibling documents in the exact same scope (same tab and same folder)
-      const targetCollectionId = doc.collectionId || doc.tabId;
+      const targetCollectionId = doc.collectionId;
       const siblings = prev.filter((d) => {
-        const dColl = d.collectionId || d.tabId;
-        return dColl === targetCollectionId && (d.folderId || undefined) === (doc.folderId || undefined);
+        return d.collectionId === targetCollectionId && (d.folderId || undefined) === (doc.folderId || undefined);
       });
 
       const siblingIdx = siblings.findIndex((d) => d.id === docId);
