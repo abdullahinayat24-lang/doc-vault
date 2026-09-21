@@ -24,7 +24,9 @@ import {
   Palette,
   X,
   UserCheck,
-  Sparkles
+  Sparkles,
+  Edit2,
+  TrendingUp
 } from 'lucide-react';
 import { ClientRecord, SolicitorProfile, CollectionTab, DocumentItem, ClientPriority, StaffMember, StaffRole } from '../types';
 
@@ -53,6 +55,7 @@ interface CompanyDashboardProps {
   onAddStaffMember?: (member: StaffMember) => void;
   onDeleteStaffMember?: (id: string) => void;
   onAssignStaffToClient?: (clientId: string, staffId?: string) => void;
+  onEditClient?: (client: ClientRecord, e: React.MouseEvent) => void;
 }
 
 export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
@@ -69,7 +72,8 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
   onUpdateFirmTheme,
   onAddStaffMember,
   onDeleteStaffMember,
-  onAssignStaffToClient
+  onAssignStaffToClient,
+  onEditClient
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<'date' | 'name' | 'priority' | 'fee'>('date');
@@ -340,26 +344,42 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 <button
                   onClick={() => setPriorityFilter('all')}
                   className={`px-2.5 py-1 rounded-lg transition-colors ${
-                    priorityFilter === 'all' ? 'bg-white text-[#1a73e8] font-bold shadow-xs' : 'text-[#5f6368]'
+                    priorityFilter === 'all' ? 'bg-white text-[#1a73e8] font-bold shadow-xs' : 'text-[#5f6368] hover:text-[#202124]'
                   }`}
                 >
                   All
                 </button>
                 <button
                   onClick={() => setPriorityFilter('urgent')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors ${
-                    priorityFilter === 'urgent' ? 'bg-[#d93025] text-white font-bold' : 'text-[#d93025]'
+                  className={`px-2.5 py-1 rounded-lg transition-all font-bold ${
+                    priorityFilter === 'urgent' ? 'bg-[#d93025] text-white shadow-xs' : 'text-[#d93025] hover:bg-[#fce8e6]'
                   }`}
                 >
-                  Urgent
+                  🔴 Urgent
                 </button>
                 <button
                   onClick={() => setPriorityFilter('high')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors ${
-                    priorityFilter === 'high' ? 'bg-[#b06000] text-white font-bold' : 'text-[#b06000]'
+                  className={`px-2.5 py-1 rounded-lg transition-all font-bold ${
+                    priorityFilter === 'high' ? 'bg-[#b06000] text-white shadow-xs' : 'text-[#b06000] hover:bg-[#fef7e0]'
                   }`}
                 >
-                  High
+                  🟠 High
+                </button>
+                <button
+                  onClick={() => setPriorityFilter('normal')}
+                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                    priorityFilter === 'normal' ? 'bg-[#1a73e8] text-white shadow-xs font-bold' : 'text-[#5f6368] hover:text-[#202124]'
+                  }`}
+                >
+                  Normal
+                </button>
+                <button
+                  onClick={() => setPriorityFilter('low')}
+                  className={`px-2.5 py-1 rounded-lg transition-all ${
+                    priorityFilter === 'low' ? 'bg-[#5f6368] text-white shadow-xs font-bold' : 'text-[#5f6368] hover:text-[#202124]'
+                  }`}
+                >
+                  Low
                 </button>
               </div>
 
@@ -414,11 +434,20 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 const missingCount = clientDocs.filter(d => d.status === 'missing' || d.status === 'disapproved').length;
                 const approvedCount = clientDocs.filter(d => d.status === 'approved').length;
 
+                const priorityBorder = {
+                  urgent: 'border-l-4 border-l-[#d93025]',
+                  high: 'border-l-4 border-l-[#f59e0b]',
+                  normal: 'border-l-4 border-l-[#1a73e8]',
+                  low: 'border-l-4 border-l-[#dadce0]'
+                }[client.priority] || '';
+
+                const outstanding = (client.totalAskingAmount || 0) + (client.totalDocCost || 0) - (client.amountPaid || 0);
+
                 return (
                   <div
                     key={client.id}
                     onClick={() => onSelectClient(client)}
-                    className="group bg-white border border-[#dadce0] hover:border-[#1a73e8] hover:shadow-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 transition-all cursor-pointer relative"
+                    className={`group bg-white border border-[#dadce0] hover:border-[#1a73e8] hover:shadow-md rounded-2xl sm:rounded-3xl p-5 sm:p-6 transition-all cursor-pointer relative overflow-hidden ${priorityBorder}`}
                   >
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       {/* Left: Client Name, Contact & Came For */}
@@ -512,35 +541,58 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                       {/* Right: Fees Breakdown & Actions */}
                       <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-3 border-t lg:border-t-0 pt-3 lg:pt-0 border-[#f1f3f4] flex-shrink-0">
                         {/* Financial Chips */}
-                        <div className="text-left lg:text-right">
+                        <div className="text-left lg:text-right space-y-0.5">
                           <div className="flex items-center lg:justify-end gap-1.5 text-sm font-bold text-[#137333]">
-                            <span>Solicitor Fee: £{client.totalAskingAmount?.toLocaleString()}</span>
+                            <PoundSterling className="w-3.5 h-3.5" />
+                            <span>Fee: £{client.totalAskingAmount?.toLocaleString()}</span>
                           </div>
                           <div className="text-xs text-[#5f6368]">
-                            Doc Sending Cost: <strong className="text-[#202124]">£{client.totalDocCost?.toLocaleString()}</strong>
+                            Doc Cost: <strong className="text-[#202124]">£{client.totalDocCost?.toLocaleString()}</strong>
                           </div>
-                          {missingCount > 0 ? (
-                            <div className="inline-flex items-center gap-1 mt-1 text-[11px] font-bold text-[#d93025] bg-[#fce8e6] px-2 py-0.5 rounded-full">
-                              <AlertCircle className="w-3 h-3" />
-                              <span>{missingCount} Missing / Disapproved Docs</span>
+                          {/* Outstanding Balance */}
+                          {outstanding > 0 ? (
+                            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#b06000] bg-[#fef7e0] px-2 py-0.5 rounded-full border border-[#fce8b2]">
+                              <TrendingUp className="w-3 h-3" />
+                              <span>Owes: £{outstanding.toLocaleString()}</span>
                             </div>
                           ) : (
-                            <div className="inline-flex items-center gap-1 mt-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] px-2 py-0.5 rounded-full">
+                            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] px-2 py-0.5 rounded-full">
                               <CheckCircle2 className="w-3 h-3" />
-                              <span>All Documents In Order</span>
+                              <span>Fully Paid</span>
+                            </div>
+                          )}
+                          {missingCount > 0 ? (
+                            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#d93025] bg-[#fce8e6] px-2 py-0.5 rounded-full">
+                              <AlertCircle className="w-3 h-3" />
+                              <span>{missingCount} Missing Docs</span>
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] px-2 py-0.5 rounded-full">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span>Docs In Order</span>
                             </div>
                           )}
                         </div>
 
                         {/* Action buttons */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <button
                             onClick={(e) => onQuickShareClient(client, e)}
                             className="p-2 bg-[#f8fafd] hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#dadce0] rounded-xl transition-colors shadow-xs"
-                            title="Share Uploader or Viewer Link with Client (4-Digit PIN)"
+                            title="Share Portal Link with Client"
                           >
                             <Share2 className="w-4 h-4" />
                           </button>
+
+                          {onEditClient && (
+                            <button
+                              onClick={(e) => onEditClient(client, e)}
+                              className="p-2 bg-[#f8fafd] hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#dadce0] rounded-xl transition-colors shadow-xs"
+                              title="Edit Client Details, Visits & Payments"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          )}
 
                           <button
                             onClick={(e) => {
@@ -550,7 +602,7 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                             className="flex items-center gap-1.5 px-4 py-2 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-bold rounded-xl shadow-xs transition-all"
                           >
                             <FolderOpen className="w-3.5 h-3.5" />
-                            <span>Open Documents</span>
+                            <span className="hidden sm:inline">Open</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
 

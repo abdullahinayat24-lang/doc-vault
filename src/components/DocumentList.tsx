@@ -84,6 +84,7 @@ interface DocumentListProps {
   onBatchMoveDocsToFolder?: (docIds: string[], targetFolderId?: string) => void;
   onBatchAutoNumberDocs?: (docIds: string[]) => void;
   onBatchUpdateStatus?: (docIds: string[], status: DocumentStatus) => void;
+  onUpdateDocNotes?: (docId: string, notes: string, description: string) => void;
   tabTitle: string;
 }
 
@@ -120,6 +121,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   onBatchMoveDocsToFolder,
   onBatchAutoNumberDocs,
   onBatchUpdateStatus,
+  onUpdateDocNotes,
   tabTitle
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,6 +142,11 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   // Document inline rename state
   const [editingDocId, setEditingDocId] = useState<string | null>(null);
   const [editingDocName, setEditingDocName] = useState<string>('');
+
+  // Inline doc notes editing state
+  const [editingNotesDocId, setEditingNotesDocId] = useState<string | null>(null);
+  const [editingNotes, setEditingNotes] = useState('');
+  const [editingInstruction, setEditingInstruction] = useState('');
 
   // Folder states
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
@@ -623,10 +630,103 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             </div>
           )}
 
-          {doc.notes && (
-            <p className="text-[10px] text-[#d93025] mt-1 font-medium italic truncate" title={doc.notes}>
-              {doc.notes}
-            </p>
+          {/* Inline Notes & Client Instructions Editor */}
+          {editingNotesDocId === doc.id ? (
+            <div className="mt-2 space-y-2" onClick={(e) => e.stopPropagation()}>
+              <div>
+                <label className="text-[10px] font-bold text-[#b06000] flex items-center gap-1 mb-0.5">
+                  🔒 Internal Note (Firm Only)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editingNotes}
+                  onChange={(e) => setEditingNotes(e.target.value)}
+                  placeholder="Internal notes visible only to your firm..."
+                  className="w-full px-2 py-1.5 bg-[#fef7e0] border border-[#fce8b2] rounded-lg text-[11px] outline-none resize-none focus:border-[#b06000]"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-[#1a73e8] flex items-center gap-1 mb-0.5">
+                  📢 Client Instructions (Shown in Portal)
+                </label>
+                <textarea
+                  rows={2}
+                  value={editingInstruction}
+                  onChange={(e) => setEditingInstruction(e.target.value)}
+                  placeholder="Instruction shown to client e.g. 'Please resubmit a clearer scan'..."
+                  className="w-full px-2 py-1.5 bg-[#e8f0fe] border border-[#c2e7ff] rounded-lg text-[11px] outline-none resize-none focus:border-[#1a73e8]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onUpdateDocNotes) onUpdateDocNotes(doc.id, editingNotes, editingInstruction);
+                    setEditingNotesDocId(null);
+                  }}
+                  className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-[11px] font-bold rounded-lg transition-colors flex items-center gap-1"
+                >
+                  <Check className="w-3 h-3" /> Save Notes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingNotesDocId(null)}
+                  className="px-2 py-1 text-[#5f6368] hover:bg-[#f1f3f4] text-[11px] rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 space-y-0.5">
+              {doc.notes && (
+                <p
+                  className="text-[10px] text-[#b06000] font-medium italic truncate cursor-pointer hover:underline"
+                  title={`Internal Note: ${doc.notes} — Click to edit`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onUpdateDocNotes) {
+                      setEditingNotesDocId(doc.id);
+                      setEditingNotes(doc.notes || '');
+                      setEditingInstruction(doc.description || '');
+                    }
+                  }}
+                >
+                  🔒 {doc.notes}
+                </p>
+              )}
+              {doc.description && (
+                <p
+                  className="text-[10px] text-[#1a73e8] font-medium italic truncate cursor-pointer hover:underline"
+                  title={`Client Instruction: ${doc.description} — Click to edit`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onUpdateDocNotes) {
+                      setEditingNotesDocId(doc.id);
+                      setEditingNotes(doc.notes || '');
+                      setEditingInstruction(doc.description || '');
+                    }
+                  }}
+                >
+                  📢 {doc.description}
+                </p>
+              )}
+              {onUpdateDocNotes && !doc.notes && !doc.description && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingNotesDocId(doc.id);
+                    setEditingNotes('');
+                    setEditingInstruction('');
+                  }}
+                  className="text-[10px] text-[#5f6368] hover:text-[#1a73e8] flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  + Add note
+                </button>
+              )}
+            </div>
           )}
         </div>
 

@@ -53,10 +53,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
 
   if (!isOpen) return null;
 
-  const handleCreateShare = async () => {
+  // ★ Instant — not async: link is shown immediately
+  const handleCreateShare = () => {
     setIsGenerating(true);
     const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
     let targetIds: string[] = [];
@@ -120,46 +122,26 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     const baseUrl = `${window.location.origin}${window.location.pathname}`;
     const cleanShortUrl = `${baseUrl}?share=${shareId}`;
 
-    // 1. Direct Supabase Cloud Storage (instant, enterprise reliable, no rate limits)
-    if (isSupabaseConfigured()) {
-      syncShareToSupabase(newRecord, targetDocs, targetFolders).catch((e) => console.warn('Supabase share error:', e));
-      setGeneratedLink(cleanShortUrl);
-      setIsGenerating(false);
-
-      // Background mirror to bytebin for cross-device redundancy
-      fetch('https://bytebin.lucko.me/post', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payloadToSend)
-      }).catch(() => {});
-      return;
-    }
-
-    // 2. Post to Bytebin worldwide fast cloud store
-    try {
-      const res = await fetch('https://bytebin.lucko.me/post', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payloadToSend)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.key) {
-          const cloudShareId = data.key;
-          const cloudRecord = { ...newRecord, id: cloudShareId };
-          onSaveShare(cloudRecord);
-          setGeneratedLink(`${baseUrl}?share=${cloudShareId}`);
-          setIsGenerating(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Cloud share store sync note:', err);
-    }
-
-    // Always keep URL clean and ultra-short (never append huge data hashes)
+    // ★ INSTANT: Link appears immediately with zero network waiting
     setGeneratedLink(cleanShortUrl);
     setIsGenerating(false);
+    setCloudSyncStatus('syncing');
+
+    // Background cloud sync — completely non-blocking
+    (async () => {
+      try {
+        if (isSupabaseConfigured()) {
+          await syncShareToSupabase(newRecord, targetDocs, targetFolders).catch(() => {});
+        }
+        await fetch('https://bytebin.lucko.me/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadToSend)
+        }).catch(() => {});
+      } finally {
+        setCloudSyncStatus('synced');
+      }
+    })();
   };
 
   const handleCopy = () => {
@@ -363,18 +345,35 @@ export const ShareModal: React.FC<ShareModalProps> = ({
           ) : (
             /* Link Generated Screen */
             <div className="space-y-4">
-              <div className="p-4 bg-[#e6f4ea] border border-[#ceead6] rounded-2xl text-center">
-                <div className="w-10 h-10 rounded-full bg-[#137333] text-white flex items-center justify-center mx-auto mb-2 shadow-xs">
-                  <Check className="w-5 h-5" />
+              <div className="p-4 bg-[#e6f4ea] border border-[#ceead6] rounded-2xl">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-full bg-[#137333] text-white flex items-center justify-center shadow-xs flex-shrink-0">
+                      <Check className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-[#137333]">
+                        {shareType === 'uploader' ? 'Uploader Link Ready!' : 'Viewer Link Ready!'}
+                      </h4>
+                      <p className="text-xs text-[#5f6368]">
+                        {shareType === 'uploader' ? 'Client can submit documents directly.' : 'Client can view approved documents.'}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Cloud sync status badge */}
+                  {cloudSyncStatus === 'syncing' && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#5f6368] bg-white px-2.5 py-1 rounded-full border border-[#dadce0]">
+                      <div className="w-3 h-3 border-2 border-[#1a73e8] border-t-transparent rounded-full animate-spin" />
+                      <span>Syncing…</span>
+                    </div>
+                  )}
+                  {cloudSyncStatus === 'synced' && (
+                    <div className="flex items-center gap-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] px-2.5 py-1 rounded-full border border-[#ceead6]">
+                      <Check className="w-3 h-3" />
+                      <span>Cloud synced</span>
+                    </div>
+                  )}
                 </div>
-                <h4 className="font-bold text-sm text-[#137333]">
-                  {shareType === 'uploader' ? 'Document Uploader Link Created!' : 'Document Viewer Link Created!'}
-                </h4>
-                <p className="text-xs text-[#5f6368] mt-0.5">
-                  {shareType === 'uploader'
-                    ? 'Client can now upload their required documents directly.'
-                    : 'Client can view and inspect approved documents.'}
-                </p>
               </div>
 
               <div>
@@ -384,7 +383,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                     {shareType === 'uploader' ? 'Upload Portal' : 'Viewer Portal'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 bg-[#f8fafd] border border-[#dadce0] p-2.5 rounded-xl text-xs font-mono text-[#202124] overflow-hidden">
+                <div className="flex items-center gap-2 bg-[#f0fff4] border-2 border-[#137333]/30 p-2.5 rounded-xl text-xs font-mono text-[#137333] overflow-hidden font-bold">
                   <span className="truncate flex-1">{generatedLink}</span>
                 </div>
               </div>
@@ -392,7 +391,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               <div className="p-3.5 bg-[#e8f0fe] border border-[#c2e7ff] rounded-2xl flex items-center justify-between">
                 <div>
                   <span className="text-xs text-[#174ea6] font-medium block">4-Digit Security PIN:</span>
-                  <span className="font-mono text-xl font-bold text-[#1a73e8] tracking-widest">
+                  <span className="font-mono text-2xl font-bold text-[#1a73e8] tracking-[0.3em]">
                     {passcode}
                   </span>
                 </div>

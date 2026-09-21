@@ -53,6 +53,7 @@ import { AuthModal } from './components/Modals/AuthModal';
 import { SharedViewer } from './components/SharedViewer';
 import { CompanyDashboard } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
+import { EditClientModal } from './components/Modals/EditClientModal';
 import { UploadDocumentsModal } from './components/Modals/UploadDocumentsModal';
 import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
@@ -192,6 +193,8 @@ export function App() {
   const [isPricingOpen, setIsPricingOpen] = useState<boolean>(false);
   const [isChangePinOpen, setIsChangePinOpen] = useState<boolean>(false);
   const [isDiscountKeysOpen, setIsDiscountKeysOpen] = useState<boolean>(false);
+  const [isEditClientOpen, setIsEditClientOpen] = useState<boolean>(false);
+  const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
 
   // Staff & Team Directory
   const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
@@ -214,6 +217,22 @@ export function App() {
       saveClients(updated);
       return updated;
     });
+  };
+
+  const handleOpenEditClient = (client: ClientRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingClient(client);
+    setIsEditClientOpen(true);
+  };
+
+  const handleSaveEditClient = (updated: ClientRecord) => {
+    setClients((prev) => {
+      const newList = prev.map((c) => c.id === updated.id ? updated : c);
+      saveClients(newList);
+      return newList;
+    });
+    setIsEditClientOpen(false);
+    setEditingClient(null);
   };
 
   const handleUpdateFirmTheme = (themeColor: string) => {
@@ -780,6 +799,24 @@ export function App() {
     );
   };
 
+  const handleUpdateDocNotes = (docId: string, notes: string, description: string) => {
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (d.id === docId) {
+          const updated = {
+            ...d,
+            notes: notes.trim() || undefined,
+            description: description.trim() || undefined,
+            updatedAt: new Date().toISOString()
+          };
+          syncSingleDocumentToSupabase(updated, user?.id);
+          return updated;
+        }
+        return d;
+      })
+    );
+  };
+
   const handleRenamePage = (docId: string, pageIndex: number, newPageName: string) => {
     const trimmed = newPageName.trim();
     if (!trimmed) return;
@@ -1191,6 +1228,7 @@ export function App() {
           onAddStaffMember={handleAddStaffMember}
           onDeleteStaffMember={handleDeleteStaffMember}
           onAssignStaffToClient={handleAssignStaffToClient}
+          onEditClient={handleOpenEditClient}
         />
       ) : (
         /* LEVEL 2: Client's Case Tabs & Document Vault */
@@ -1265,6 +1303,7 @@ export function App() {
                 onMoveDocPosition={handleMoveDocPosition}
                 onCreateBlankDoc={handleCreateBlankDoc}
                 onSyncLocalDocs={handleSyncLocalDocs}
+                onUpdateDocNotes={handleUpdateDocNotes}
                 tabTitle={activeTab.name}
               />
             </div>
@@ -1337,6 +1376,15 @@ export function App() {
         staffList={staffList}
       />
 
+      {editingClient && (
+        <EditClientModal
+          isOpen={isEditClientOpen}
+          onClose={() => { setIsEditClientOpen(false); setEditingClient(null); }}
+          client={editingClient}
+          staffList={staffList}
+          onSave={handleSaveEditClient}
+        />
+      )}
       <UploadDocumentsModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}

@@ -555,15 +555,19 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
                             )}
                           </div>
 
-                          <p className="text-xs text-[#5f6368] mt-0.5">
-                            {doc.description || `Expected format: ${doc.fileType.toUpperCase()}`}
-                          </p>
-
-                          {doc.notes && (
-                            <div className="mt-2 p-2 bg-white/80 rounded-lg text-xs text-[#d93025] font-medium border border-[#ea4335]/30">
-                              <strong>Solicitor Note:</strong> {doc.notes}
+                          {/* Client Instructions (from doc.description — firm sets this) */}
+                          {doc.description ? (
+                            <div className="mt-2 p-2.5 bg-[#e8f0fe] border border-[#c2e7ff] rounded-xl text-xs text-[#1a73e8] font-medium leading-relaxed">
+                              <span className="font-bold text-[#174ea6] mr-1">📢 Instruction:</span>
+                              {doc.description}
                             </div>
+                          ) : (
+                            <p className="text-xs text-[#5f6368] mt-0.5">
+                              {`Expected format: ${doc.fileType.toUpperCase()}`}
+                            </p>
                           )}
+
+                          {/* Internal notes are NOT shown to clients in the portal */}
                         </div>
                       </div>
 

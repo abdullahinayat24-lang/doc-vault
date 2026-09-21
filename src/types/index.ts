@@ -35,6 +35,8 @@ export interface ClientRecord {
   firstVisitDate: string;
   lastVisitDate: string;
   visitCount: number; // e.g. came 4 times
+  whoAttended?: string; // e.g. "Mr. Smith + Mrs. Smith"
+  attendanceHistory?: string; // JSON array of past visit records (lightweight log)
   notes?: string;
   assignedStaffId?: string;
   createdAt: string;
