@@ -35,7 +35,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     localStorage.getItem('docvault_supabase_url') || 'https://eccdphuupctvdayyenhl.supabase.co'
   );
   const [supabaseKey, setSupabaseKey] = useState(
-    localStorage.getItem('docvault_supabase_key') || ''
+    localStorage.getItem('docvault_supabase_key') || 'sb_publishable_8JlfIOAaxD_ePc0yoG7qYA_wC5QkNWq'
   );
 
   const [loading, setLoading] = useState(false);
