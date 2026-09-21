@@ -76,14 +76,16 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
     );
   }
 
-  // Filter allowed documents
+  // Filter allowed documents with safe fallback for self-contained cross-device payload
   const allowedDocuments: DocumentItem[] = React.useMemo(() => {
+    let filtered: DocumentItem[] = [];
     if (shareRecord.scope === 'collection') {
       const targetTabId = shareRecord.targetIds[0];
-      return documents.filter((d) => d.collectionId === targetTabId);
+      filtered = documents.filter((d) => d.collectionId === targetTabId);
     } else {
-      return documents.filter((d) => shareRecord.targetIds.includes(d.id));
+      filtered = documents.filter((d) => shareRecord.targetIds.includes(d.id));
     }
+    return filtered.length > 0 ? filtered : documents;
   }, [shareRecord, documents]);
 
   const handleUnlock = (e: React.FormEvent) => {

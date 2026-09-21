@@ -88,7 +88,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
     onSaveShare(newRecord);
 
-    // Prepare payload documents so the client portal works on any device/browser
+    // Prepare lightweight payload documents so the client portal works on any device/browser
+    // Exclude massive base64 binaries to keep the link short, clean, and compliant with all browsers & messaging apps
     const payloadDocs = targetDocs.map((d) => ({
       id: d.id,
       name: d.name,
@@ -100,29 +101,37 @@ export const ShareModal: React.FC<ShareModalProps> = ({
       notes: d.notes,
       description: d.description,
       rotation: d.rotation || 0,
-      url: shareType === 'viewer' && d.url && d.url.length < 500000 ? d.url : '',
-      pages: d.pages?.map(p => ({
-        id: p.id,
-        name: p.name,
-        fileType: p.fileType,
-        rotation: p.rotation,
-        url: shareType === 'viewer' && p.url && p.url.length < 500000 ? p.url : ''
-      }))
+      url: (d.url && (d.url.startsWith('http://') || d.url.startsWith('https://')) && d.url.length < 500) ? d.url : ''
     }));
 
-    let encodedData = '';
+    const baseUrl = `${window.location.origin}${window.location.pathname}?share=${shareId}`;
+    let shareUrl = baseUrl;
+
     try {
       const payload = { share: newRecord, docs: payloadDocs };
-      encodedData = btoa(encodeURIComponent(JSON.stringify(payload)));
+      const jsonStr = JSON.stringify(payload);
+      if (jsonStr.length < 2000) {
+        const encodedData = btoa(encodeURIComponent(jsonStr));
+        shareUrl = `${baseUrl}#data=${encodedData}`;
+      }
     } catch (e) {
       console.warn('Payload encoding fallback:', e);
     }
 
-    const shareUrl = encodedData 
-      ? `${window.location.origin}${window.location.pathname}?share=${shareId}#data=${encodedData}`
-      : `${window.location.origin}${window.location.pathname}?share=${shareId}`;
-
+    // Set immediate link
     setGeneratedLink(shareUrl);
+
+    // Automatically shorten to a compact, clean URL (e.g. https://tinyurl.com/xyz)
+    fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(shareUrl)}`)
+      .then((res) => res.text())
+      .then((shortUrl) => {
+        if (shortUrl && shortUrl.startsWith('http') && !shortUrl.includes('Error')) {
+          setGeneratedLink(shortUrl.trim());
+        }
+      })
+      .catch(() => {
+        // Keeps shareUrl fallback if offline
+      });
   };
 
   const handleCopy = () => {

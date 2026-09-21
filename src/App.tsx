@@ -700,7 +700,11 @@ export function App() {
       const result = [...prev];
       const srcIdx = result.findIndex(d => d.id === sourceDocId);
       if (srcIdx < 0) return prev;
+      const targetDoc = result.find(d => d.id === targetDocId);
       const [moved] = result.splice(srcIdx, 1);
+      if (targetDoc) {
+        moved.folderId = targetDoc.folderId;
+      }
       const newTgtIdx = result.findIndex(d => d.id === targetDocId);
       if (newTgtIdx < 0) return prev;
       result.splice(position === 'before' ? newTgtIdx : newTgtIdx + 1, 0, moved);
