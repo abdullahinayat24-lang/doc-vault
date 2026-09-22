@@ -1782,6 +1782,15 @@ export function App() {
     return (
       <AuthScreen
         onAuthenticated={(profile) => {
+          if (profile.isDemoMode) {
+            const freshClients = getClients();
+            if (freshClients.length > 0) {
+              setClients(freshClients);
+              setTabs(getInitialTabs());
+              setDocuments(deduplicateDocuments(getInitialDocuments()));
+              setFolders(getInitialFolders());
+            }
+          }
           setUser(profile);
           saveSolicitorProfile(profile);
         }}

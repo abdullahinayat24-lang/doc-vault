@@ -17,7 +17,22 @@ import {
 } from 'lucide-react';
 import { SolicitorProfile } from '../types';
 import { supabase, isSupabaseConfigured, updateSupabaseCredentials } from '../lib/supabase';
-import { validateAndConsumeInviteKey } from '../lib/storage';
+import { 
+  validateAndConsumeInviteKey, 
+  getClients, 
+  saveClients, 
+  saveTabs, 
+  saveDocuments, 
+  saveFolders, 
+  saveSolicitorProfile 
+} from '../lib/storage';
+import { 
+  initialSolicitorProfile, 
+  initialClients, 
+  initialTabs, 
+  initialDocuments, 
+  initialFolders 
+} from '../lib/sampleDocs';
 import { PricingModal } from './Modals/PricingModal';
 
 interface AuthScreenProps {
@@ -25,16 +40,22 @@ interface AuthScreenProps {
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signup');
+  const [registrationKey, setRegistrationKey] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('license') || params.get('invite') || params.get('key') || '';
+  });
+
+  const [mode, setMode] = useState<'signin' | 'signup'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hasInvite = Boolean(params.get('license') || params.get('invite') || params.get('key'));
+    return hasInvite ? 'signup' : 'signin';
+  });
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
-  const [registrationKey, setRegistrationKey] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('license') || params.get('invite') || params.get('key') || '';
-  });
 
   // Supabase cloud config
   const [showCloudConfig, setShowCloudConfig] = useState(false);
@@ -72,8 +93,42 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const isEmailNotConfirmed = Boolean(error && error.toLowerCase().includes('email not confirmed'));
 
+  const handleLaunchDemo = () => {
+    const demoProfile: SolicitorProfile = {
+      ...initialSolicitorProfile,
+      id: 'solicitor_demo_preview',
+      email: 'demo@docvault.law',
+      displayName: 'David Sterling, Esq.',
+      companyName: 'Apex Legal & Solicitor Chambers',
+      phone: '+44 20 7946 0912',
+      address: '14 Chancery Lane, London, WC2A 1LB',
+      pinCode: '1234',
+      isDemoMode: true,
+      role: 'admin',
+      firmThemeColor: '#1a73e8'
+    };
+
+    const existingClients = getClients();
+    if (!existingClients || existingClients.length === 0) {
+      saveClients(initialClients);
+      saveTabs(initialTabs);
+      saveFolders(initialFolders);
+      saveDocuments(initialDocuments);
+    }
+
+    saveSolicitorProfile(demoProfile);
+    onAuthenticated(demoProfile);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Check if user is signing into Demo Account
+    if (mode === 'signin' && (email.trim().toLowerCase() === 'demo@docvault.law' || email.trim().toLowerCase() === 'demo')) {
+      handleLaunchDemo();
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResendMessage(null);
@@ -210,21 +265,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         </div>
 
         {/* Tab switcher: Sign In vs Create Account */}
-        <div className="flex bg-[#f1f3f4] p-1 rounded-2xl mb-6 text-xs font-bold text-[#5f6368]">
-          <button
-            type="button"
-            onClick={() => {
-              setMode('signup');
-              setError(null);
-            }}
-            className={`flex-1 py-2.5 rounded-xl transition-all ${
-              mode === 'signup'
-                ? 'bg-white text-[#1a73e8] shadow-xs'
-                : 'hover:text-[#202124]'
-            }`}
-          >
-            Create Your Account
-          </button>
+        <div className="flex bg-[#f1f3f4] p-1 rounded-2xl mb-5 text-xs font-bold text-[#5f6368]">
           <button
             type="button"
             onClick={() => {
@@ -233,13 +274,117 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
             }}
             className={`flex-1 py-2.5 rounded-xl transition-all ${
               mode === 'signin'
-                ? 'bg-white text-[#1a73e8] shadow-xs'
+                ? 'bg-white text-[#1a73e8] shadow-xs font-bold'
                 : 'hover:text-[#202124]'
             }`}
           >
             Sign In
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('signup');
+              setError(null);
+            }}
+            className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+              mode === 'signup'
+                ? 'bg-white text-[#1a73e8] shadow-xs font-bold'
+                : 'hover:text-[#202124]'
+            }`}
+          >
+            <span>Create Account</span>
+            {registrationKey ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="License link active" />
+            ) : (
+              <span className="text-[10px] text-[#70757a] font-normal">(With Key)</span>
+            )}
+          </button>
         </div>
+
+        {/* Demo Solicitor Chambers Quick Access (shown on Sign In tab) */}
+        {mode === 'signin' && (
+          <div className="mb-5 p-4 rounded-2xl bg-gradient-to-br from-[#f8fafd] via-[#e8f0fe]/70 to-[#f8fafd] border border-[#c2e7ff] shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#1a73e8] text-white flex items-center justify-center flex-shrink-0 shadow-xs mt-0.5">
+                <Sparkles className="w-5 h-5 text-amber-300" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-['Google_Sans',sans-serif] text-xs font-bold text-[#202124]">
+                    Evaluating DocVault?
+                  </h3>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                    Free Instant Tour
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#5f6368] mt-1 leading-relaxed">
+                  Test the software immediately with pre-loaded client cases, Child Visa folders, documents, court bundle indexer, and solicitor tools. No card or password needed.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleLaunchDemo}
+                  className="mt-3 w-full py-2.5 px-4 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 group"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform" />
+                  <span>Launch Interactive Demo Chambers</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {mode === 'signin' && (
+          <div className="relative flex items-center justify-center my-4">
+            <div className="border-t border-[#dadce0] w-full" />
+            <span className="bg-white px-3 text-[10px] font-bold text-[#70757a] uppercase tracking-wider whitespace-nowrap">
+              or sign in with password
+            </span>
+            <div className="border-t border-[#dadce0] w-full" />
+          </div>
+        )}
+
+        {/* License Invitation Notice (shown on Create Account tab) */}
+        {mode === 'signup' && (
+          registrationKey ? (
+            <div className="mb-4 p-3.5 bg-[#e6f4ea] border border-[#ceead6] rounded-2xl flex items-center gap-2.5 text-xs text-[#137333]">
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-[#137333]" />
+              <div className="flex-1 min-w-0">
+                <span className="font-bold">License Key Detected:</span> <span className="font-mono">{registrationKey}</span>
+                <p className="text-[11px] text-[#137333]/90 mt-0.5">Please set up your firm name and solicitor credentials below to activate your workspace.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mb-4 p-3.5 bg-[#fef7e0] border border-[#f9ab00]/40 rounded-2xl text-xs text-[#b06000] space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Firm License Key Required for New Accounts</span>
+                  <p className="text-[11px] text-[#5f6368] mt-0.5 leading-relaxed">
+                    DocVault account registration is reserved for licensed solicitor practices. If you've subscribed, enter your key below or open your invite link. To evaluate the software for free, test the Demo Account.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#f9ab00]/20">
+                <button
+                  type="button"
+                  onClick={handleLaunchDemo}
+                  className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white font-semibold text-[11px] rounded-lg transition-colors inline-flex items-center gap-1 shadow-xs"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  <span>Try Demo Account Free</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPricingModal(true)}
+                  className="px-2.5 py-1 bg-white hover:bg-[#f1f3f4] text-[#202124] border border-[#dadce0] font-semibold text-[11px] rounded-lg transition-colors inline-flex items-center gap-1"
+                >
+                  <span>View Plans &amp; Pricing</span>
+                </button>
+              </div>
+            </div>
+          )
+        )}
 
         {error && (
           <div className={`mb-4 p-3.5 rounded-xl text-xs flex flex-col gap-2 ${
@@ -349,12 +494,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                 <div className="relative flex items-center">
                   <Key className="w-4 h-4 text-[#5f6368] absolute left-3" />
                   <input
-                    type="password"
-                    placeholder="Enter special registration passcode..."
+                    type="text"
+                    placeholder="e.g. DV-XXXX-XXXX-XXXX or LEGAL-VAULT-2026"
                     value={registrationKey}
-                    onChange={(e) => setRegistrationKey(e.target.value)}
+                    onChange={(e) => setRegistrationKey(e.target.value.toUpperCase())}
                     required
-                    className="w-full pl-9 pr-3 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs font-mono tracking-wider outline-none"
+                    className="w-full pl-9 pr-3 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs font-mono uppercase tracking-wider outline-none"
                   />
                 </div>
                 <p className="text-[11px] text-[#5f6368] mt-1">
@@ -397,6 +542,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                 className="w-full pl-9 pr-3 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
               />
             </div>
+            {mode === 'signin' && (
+              <div className="flex items-center justify-between text-[11px] text-[#5f6368] pt-1.5 px-0.5">
+                <span>Try sample login:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail('demo@docvault.law');
+                    setPassword('demo123');
+                  }}
+                  className="text-[#1a73e8] hover:underline font-semibold"
+                >
+                  Autofill demo@docvault.law / demo123
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Collapsible Supabase Cloud Settings */}

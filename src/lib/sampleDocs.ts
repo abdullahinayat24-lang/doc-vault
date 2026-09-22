@@ -1,4 +1,4 @@
-import { DocumentItem, CollectionTab, SolicitorProfile, ClientRecord } from '../types';
+import { DocumentItem, CollectionTab, SolicitorProfile, ClientRecord, DocumentFolder } from '../types';
 
 // Valid base64 PDF
 const samplePdfBase64 = 
@@ -178,12 +178,44 @@ export const initialTabs: CollectionTab[] = [
   }
 ];
 
+export const initialFolders: DocumentFolder[] = [
+  {
+    id: 'f-identity',
+    collectionId: 'tab-app-2024',
+    name: 'Identity & Passports',
+    color: 'blue',
+    createdAt: '2024-02-10T10:00:00Z'
+  },
+  {
+    id: 'f-finance',
+    collectionId: 'tab-app-2024',
+    name: 'Financial & Income Proof',
+    color: 'green',
+    createdAt: '2024-02-10T10:00:00Z'
+  },
+  {
+    id: 'f-relationship',
+    collectionId: 'tab-app-2024',
+    name: 'Relationship & Marriage Evidence',
+    color: 'amber',
+    createdAt: '2024-02-10T10:00:00Z'
+  },
+  {
+    id: 'f-child',
+    collectionId: 'tab-app-2025',
+    name: 'Child Visa & Dependent Proof',
+    color: 'purple',
+    createdAt: '2025-01-15T09:00:00Z'
+  }
+];
+
 export const initialDocuments: DocumentItem[] = [
   // Robert Vance - Application in 2024
   {
     id: 'doc-pass-2024',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2024',
+    folderId: 'f-identity',
     name: 'Passport_Copy_Certified.pdf',
     fileType: 'pdf',
     fileSize: 14280,
@@ -198,6 +230,7 @@ export const initialDocuments: DocumentItem[] = [
     id: 'doc-cert-2024',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2024',
+    folderId: 'f-relationship',
     name: 'Marriage_Certificate_Translation.png',
     fileType: 'png',
     fileSize: 48200,
@@ -212,6 +245,7 @@ export const initialDocuments: DocumentItem[] = [
     id: 'doc-tax-disapproved',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2024',
+    folderId: 'f-finance',
     name: 'Proof_of_Income_Tax_Return_2024.pdf',
     fileType: 'pdf',
     fileSize: 14280,
@@ -227,6 +261,7 @@ export const initialDocuments: DocumentItem[] = [
     id: 'doc-police-missing',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2024',
+    folderId: 'f-identity',
     name: 'Police_Clearance_Certificate.pdf',
     fileType: 'pdf',
     fileSize: 0,
@@ -244,6 +279,7 @@ export const initialDocuments: DocumentItem[] = [
     id: 'doc-wife-pass-approved',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2025',
+    folderId: 'f-child',
     name: 'Wife_Passport_Biometrics.pdf',
     fileType: 'pdf',
     fileSize: 14280,
@@ -258,6 +294,7 @@ export const initialDocuments: DocumentItem[] = [
     id: 'doc-wife-bank-missing',
     clientId: 'client-robert-vance',
     collectionId: 'tab-app-2025',
+    folderId: 'f-child',
     name: 'Bank_Statement_Last_6_Months.pdf',
     fileType: 'pdf',
     fileSize: 0,
