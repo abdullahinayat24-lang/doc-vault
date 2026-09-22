@@ -20,10 +20,15 @@ import {
   Sparkles,
   KeyRound,
   Clock,
-  Tag
+  Tag,
+  Edit2,
+  Printer,
+  Building,
+  Layers
 } from 'lucide-react';
 import { SolicitorProfile, DocumentItem, ClientRecord, StaffMember } from '../types';
 import { getTrialStatus } from '../lib/storage';
+import { FIRM_THEMES } from './CompanyDashboard';
 
 
 interface HeaderProps {
@@ -49,6 +54,11 @@ interface HeaderProps {
   onExportCurrentAsPdf: () => void;
   onExportCurrentAsJpg: () => void;
   onExportAll: () => void;
+  onExportMergedPdf?: (docsToMerge?: DocumentItem[]) => void;
+  onExportAsJpgZip?: (docsToExport?: DocumentItem[]) => void;
+  onPrintAll?: () => void;
+  onOpenLetterhead?: () => void;
+  onEditClient?: () => void;
 }
 
 
@@ -75,15 +85,29 @@ export const Header: React.FC<HeaderProps> = ({
   onExportCurrent,
   onExportCurrentAsPdf,
   onExportCurrentAsJpg,
-  onExportAll
+  onExportAll,
+  onExportMergedPdf,
+  onExportAsJpgZip,
+  onPrintAll,
+  onOpenLetterhead,
+  onEditClient
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const trial = getTrialStatus();
   const isOwnerOrAdmin = user.email?.toLowerCase() === 'rana.abdullah.inayat@gmail.com' || user.role === 'admin';
 
+  const activeTheme = FIRM_THEMES.find(
+    (t) =>
+      t.hex.toLowerCase() === (user.firmThemeColor || '').toLowerCase() ||
+      t.id === user.firmThemeColor
+  ) || FIRM_THEMES[0];
+
   return (
-    <header className="h-16 bg-white border-b border-[#dadce0] px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 sticky top-0 z-30 select-none">
+    <header 
+      className="h-16 bg-white border-b border-[#dadce0] px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 sticky top-0 z-30 select-none"
+      style={{ borderTop: `3px solid ${activeTheme.hex}` }}
+    >
       {/* Brand & Breadcrumbs */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         {selectedClient ? (
@@ -98,13 +122,25 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
             <span className="text-[#dadce0]">/</span>
             <div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="font-['Google_Sans',sans-serif] text-sm sm:text-base font-bold text-[#202124] truncate max-w-[180px] sm:max-w-[220px]">
                   {selectedClient.name}
                 </span>
-                <span className="text-[10px] font-semibold bg-[#e8f0fe] text-[#1a73e8] px-2 py-0.2 rounded-full">
+                <span 
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: activeTheme.lightBg, color: activeTheme.hex }}
+                >
                   {selectedClient.cameFor}
                 </span>
+                {onEditClient && (
+                  <button
+                    onClick={onEditClient}
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded-lg transition-colors"
+                    title="Edit client name, purpose (e.g. Visa type), phone, fees &amp; notes"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
               <p className="text-[11px] text-[#5f6368] truncate max-w-[200px]">
                 {selectedClient.phone} • {selectedClient.visitCount} visits
@@ -162,6 +198,18 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Action Buttons: Export, Share, Lock, Account */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* + Letterhead Studio Button */}
+        {selectedClient && onOpenLetterhead && (
+          <button
+            onClick={onOpenLetterhead}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold bg-[#e8f0fe] hover:bg-[#d2e3fc] text-[#1a73e8] rounded-lg border border-[#1a73e8]/30 transition-colors shadow-xs"
+            title="Open Firm Letterhead Studio &amp; Document Generator"
+          >
+            <Building className="w-4 h-4 text-[#1a73e8]" />
+            <span className="hidden sm:inline">+ Letterhead</span>
+          </button>
+        )}
+
         {selectedClient && (
           <div className="relative">
             <button
@@ -185,24 +233,54 @@ export const Header: React.FC<HeaderProps> = ({
                   className="fixed inset-0 z-40" 
                   onClick={() => setShowExportMenu(false)}
                 />
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-[#dadce0] rounded-xl shadow-xl py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100">
-                  <div className="px-3 py-1.5 text-xs font-semibold text-[#5f6368] uppercase tracking-wider">
-                    Export Options
-                  </div>
+                <div className="absolute right-0 mt-2 w-72 bg-white border border-[#dadce0] rounded-xl shadow-xl py-2 z-50 text-sm animate-in fade-in zoom-in-95 duration-100 divide-y divide-[#f1f3f4]">
+                  {/* Selected Documents Section */}
                   {selectedCount > 0 && (
-                    <button
-                      onClick={() => {
-                        onExportSelected();
-                        setShowExportMenu(false);
-                      }}
-                      className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-medium"
-                    >
-                      <CheckSquare className="w-4 h-4 text-[#1a73e8]" />
-                      Export Selected ({selectedCount}) as ZIP
-                    </button>
+                    <div className="py-1">
+                      <div className="px-3 py-1 text-[11px] font-bold text-[#1a73e8] uppercase tracking-wider">
+                        Selected Files ({selectedCount})
+                      </div>
+                      <button
+                        onClick={() => {
+                          onExportMergedPdf && onExportMergedPdf();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-semibold"
+                      >
+                        <Layers className="w-4 h-4 text-[#1a73e8]" />
+                        <span>Merge Selected ({selectedCount}) to Single PDF</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          onExportSelected();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <CheckSquare className="w-4 h-4 text-[#5f6368]" />
+                        <span>Export Selected ({selectedCount}) as ZIP</span>
+                      </button>
+                      {onExportAsJpgZip && (
+                        <button
+                          onClick={() => {
+                            onExportAsJpgZip();
+                            setShowExportMenu(false);
+                          }}
+                          className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                        >
+                          <ImageIcon className="w-4 h-4 text-[#5f6368]" />
+                          <span>Export Selected as JPGs (ZIP)</span>
+                        </button>
+                      )}
+                    </div>
                   )}
+
+                  {/* Active Document Section */}
                   {activeDocument && activeDocument.hasFile && (
-                    <>
+                    <div className="py-1">
+                      <div className="px-3 py-1 text-[11px] font-bold text-[#5f6368] uppercase tracking-wider truncate">
+                        Active: {activeDocument.name}
+                      </div>
                       <button
                         onClick={() => {
                           onExportCurrent();
@@ -211,7 +289,7 @@ export const Header: React.FC<HeaderProps> = ({
                         className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
                       >
                         <Download className="w-4 h-4 text-[#5f6368]" />
-                        Download Original ({activeDocument.fileType.toUpperCase()})
+                        <span>Download Original ({activeDocument.fileType.toUpperCase()})</span>
                       </button>
                       <button
                         onClick={() => {
@@ -221,7 +299,7 @@ export const Header: React.FC<HeaderProps> = ({
                         className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
                       >
                         <FileTypeIcon className="w-4 h-4 text-[#d93025]" />
-                        Convert &amp; Export as PDF
+                        <span>Convert &amp; Export as PDF</span>
                       </button>
                       <button
                         onClick={() => {
@@ -231,20 +309,63 @@ export const Header: React.FC<HeaderProps> = ({
                         className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
                       >
                         <ImageIcon className="w-4 h-4 text-[#1a73e8]" />
-                        Convert &amp; Export as JPG
+                        <span>Convert &amp; Export as JPG</span>
                       </button>
-                    </>
+                    </div>
                   )}
-                  <button
-                    onClick={() => {
-                      onExportAll();
-                      setShowExportMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors border-t border-[#f1f3f4]"
-                  >
-                    <Archive className="w-4 h-4 text-[#5f6368]" />
-                    Export Entire Tab (ZIP)
-                  </button>
+
+                  {/* Entire Tab / Case Section */}
+                  <div className="py-1">
+                    <div className="px-3 py-1 text-[11px] font-bold text-[#5f6368] uppercase tracking-wider">
+                      Entire Tab / Case Vault
+                    </div>
+                    {onExportMergedPdf && (
+                      <button
+                        onClick={() => {
+                          onExportMergedPdf();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-medium"
+                      >
+                        <FileText className="w-4 h-4 text-[#1a73e8]" />
+                        <span>Merge Entire Tab into 1 PDF</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        onExportAll();
+                        setShowExportMenu(false);
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                    >
+                      <Archive className="w-4 h-4 text-[#5f6368]" />
+                      <span>Export Entire Tab (ZIP)</span>
+                    </button>
+                    {onExportAsJpgZip && (
+                      <button
+                        onClick={() => {
+                          onExportAsJpgZip();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#202124] flex items-center gap-2.5 transition-colors"
+                      >
+                        <ImageIcon className="w-4 h-4 text-[#5f6368]" />
+                        <span>Export Entire Tab as JPGs (ZIP)</span>
+                      </button>
+                    )}
+                    {onPrintAll && (
+                      <button
+                        onClick={() => {
+                          onPrintAll();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#f8fafd] text-[#137333] flex items-center gap-2.5 transition-colors font-medium"
+                      >
+                        <Printer className="w-4 h-4 text-[#137333]" />
+                        <span>Print All Documents</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </>
             )}

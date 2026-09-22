@@ -33,10 +33,14 @@ import {
   CornerDownRight,
   Cloud,
   Loader2,
-  Printer
+  Printer,
+  Building,
+  Layers,
+  Archive
 } from 'lucide-react';
 import { DocumentItem, FileType, DocumentStatus, DocumentFolder, FolderColor, SolicitorProfile } from '../types';
 import { printDocument, printMultipleDocuments } from '../lib/printUtils';
+import { exportMergedPdf, exportMultipleDocuments } from '../lib/storage';
 
 export const FOLDER_COLORS: { id: FolderColor; name: string; bg: string; text: string; border: string; hoverBg: string }[] = [
   { id: 'blue', name: 'Blue', bg: '#e8f0fe', text: '#1a73e8', border: '#1a73e8', hoverBg: '#d2e3fc' },
@@ -91,6 +95,7 @@ interface DocumentListProps {
   clientName?: string;
   onPrintDocument?: (doc: DocumentItem) => void;
   onPrintMultipleDocuments?: (docs: DocumentItem[]) => void;
+  onOpenLetterhead?: () => void;
   tabTitle: string;
 }
 
@@ -98,6 +103,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
   documents,
   folders = [],
   activeDocumentId,
+  onOpenLetterhead,
   onSelectDocument,
   selectedDocIds,
   onToggleSelectDoc,
@@ -1141,6 +1147,40 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 </div>
               )}
 
+              {/* Folder Merge PDF */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const docsInThisFolder = documents.filter(d => d.folderId === folder.id);
+                  if (docsInThisFolder.length === 0) {
+                    alert('No documents in this folder to export.');
+                    return;
+                  }
+                  exportMergedPdf(docsInThisFolder, `${folder.name}_Merged.pdf`);
+                }}
+                className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                title="Merge all documents in this folder into 1 PDF"
+              >
+                <Layers className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Folder Export ZIP */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const docsInThisFolder = documents.filter(d => d.folderId === folder.id);
+                  if (docsInThisFolder.length === 0) {
+                    alert('No documents in this folder to export.');
+                    return;
+                  }
+                  exportMultipleDocuments(docsInThisFolder, `${folder.name}.zip`, folders);
+                }}
+                className="p-1 text-[#5f6368] hover:text-emerald-600 hover:bg-black/5 rounded transition-colors"
+                title="Export this folder as ZIP"
+              >
+                <Archive className="w-3.5 h-3.5" />
+              </button>
+
               {/* Rename folder button */}
               {onRenameFolder && (
                 <button
@@ -1315,6 +1355,18 @@ export const DocumentList: React.FC<DocumentListProps> = ({
             >
               <FolderPlus className="w-4 h-4" />
               <span>+ Folder</span>
+            </button>
+          )}
+
+          {/* Letterhead Studio Button */}
+          {onOpenLetterhead && (
+            <button
+              onClick={onOpenLetterhead}
+              className="flex items-center justify-center gap-1 py-2.5 px-2.5 bg-white hover:bg-[#e8f0fe] text-[#1a73e8] border border-[#1a73e8]/40 rounded-full font-medium text-xs shadow-xs transition-colors"
+              title="Create official firm letterhead document"
+            >
+              <Building className="w-4 h-4" />
+              <span>+ Letter</span>
             </button>
           )}
 
@@ -1541,6 +1593,34 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                   <Printer className="w-3.5 h-3.5 text-blue-400" />
                 )}
                 <span>Print Selected ({selectedDocIds.length})</span>
+              </button>
+
+              {/* Batch Merge to 1 PDF */}
+              <button
+                type="button"
+                onClick={() => {
+                  const selectedDocs = documents.filter(d => selectedDocIds.includes(d.id));
+                  exportMergedPdf(selectedDocs, `${tabTitle}_Selected_Merged.pdf`);
+                }}
+                className="px-2.5 py-1 bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                title="Combine all selected documents into a single multi-page PDF"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Merge to 1 PDF</span>
+              </button>
+
+              {/* Batch Export ZIP */}
+              <button
+                type="button"
+                onClick={() => {
+                  const selectedDocs = documents.filter(d => selectedDocIds.includes(d.id));
+                  exportMultipleDocuments(selectedDocs, `${tabTitle}_Selected.zip`, folders);
+                }}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-slate-600 transition-colors shadow-xs"
+                title="Download all selected documents in a ZIP archive"
+              >
+                <Archive className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Export ZIP</span>
               </button>
 
               {/* Move to Folder Dropdown */}

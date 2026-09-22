@@ -45,6 +45,11 @@ import {
   syncDocumentsToSupabase,
   extractFoldersFromClients,
   syncFoldersToSupabase,
+  fetchFoldersFromSupabaseMaster,
+  deleteDocumentFromSupabase,
+  deleteBatchDocumentsFromSupabase,
+  exportMergedPdf,
+  exportAsJpgZip,
   syncShareToSupabase,
   migrateLocalDocumentsToCloud,
   initTrial,
@@ -63,9 +68,10 @@ import { ShareModal } from './components/Modals/ShareModal';
 import { LockScreenModal } from './components/Modals/LockScreenModal';
 import { AuthModal } from './components/Modals/AuthModal';
 import { SharedViewer } from './components/SharedViewer';
-import { CompanyDashboard } from './components/CompanyDashboard';
+import { CompanyDashboard, FIRM_THEMES } from './components/CompanyDashboard';
 import { NewClientModal } from './components/Modals/NewClientModal';
 import { EditClientModal } from './components/Modals/EditClientModal';
+import { LetterheadModal } from './components/Modals/LetterheadModal';
 import { UploadDocumentsModal } from './components/Modals/UploadDocumentsModal';
 import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
@@ -75,6 +81,7 @@ import { StaffLogin } from './components/StaffPortal/StaffLogin';
 import { StaffInviteSetup } from './components/StaffPortal/StaffInviteSetup';
 import { StaffManagementModal } from './components/Modals/StaffManagementModal';
 import { UploadProgressToast, UploadProgressInfo } from './components/UploadProgressToast';
+import { printMultipleDocuments } from './lib/printUtils';
 import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
 
 
@@ -86,7 +93,7 @@ export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
   for (const d of docs) {
     if (!d || !d.id) continue;
 
-    const signature = `${d.collectionId || 'default'}::${d.folderId || 'root'}::${d.name.trim().toLowerCase()}::${d.fileSize || 0}`;
+    const signature = `${d.collectionId || 'default'}::${d.folderId || 'root'}::${d.name.trim().toLowerCase()}`;
     const existingId = bySig.get(signature) || (byId.has(d.id) ? d.id : undefined);
     const existing = existingId ? byId.get(existingId) : undefined;
 
@@ -99,7 +106,8 @@ export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
         id: existing.id,
         url: validUrl || '',
         hasFile: Boolean((validUrl && validUrl.length > 0) || d.hasFile || existing.hasFile),
-        folderId: d.folderId || existing.folderId
+        folderId: d.folderId || existing.folderId,
+        pages: (d.pages && d.pages.length > 0) ? d.pages : existing.pages
       };
       byId.set(existing.id, merged);
     } else {
@@ -295,6 +303,8 @@ export function App() {
   const [isDiscountKeysOpen, setIsDiscountKeysOpen] = useState<boolean>(false);
   const [isEditClientOpen, setIsEditClientOpen] = useState<boolean>(false);
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
+  const [isLetterheadOpen, setIsLetterheadOpen] = useState<boolean>(false);
+  const [letterheadInitialDoc, setLetterheadInitialDoc] = useState<DocumentItem | null>(null);
 
   // Staff & Team Directory
   const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
@@ -373,6 +383,34 @@ export function App() {
     }
   };
 
+  const handleSaveLetterheadDocument = (docItem: DocumentItem, targetFolderId?: string) => {
+    const docWithFolder: DocumentItem = {
+      ...docItem,
+      folderId: targetFolderId !== undefined ? targetFolderId : docItem.folderId,
+      clientId: selectedClientId || undefined,
+      collectionId: activeTab.id
+    };
+    setDocuments((prev) => [docWithFolder, ...prev]);
+    setActiveDocId(docWithFolder.id);
+    syncSingleDocumentToSupabase(docWithFolder, user?.id);
+  };
+
+  const handleCopyLetterheadToOtherClient = (targetClientId: string, docItem: DocumentItem) => {
+    const targetClientTabs = tabs.filter((t) => t.clientId === targetClientId);
+    const targetTabId = targetClientTabs.length > 0 ? targetClientTabs[0].id : 'default';
+    const copyDoc: DocumentItem = {
+      ...docItem,
+      id: generateUUID(),
+      clientId: targetClientId,
+      collectionId: targetTabId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setDocuments((prev) => [copyDoc, ...prev]);
+    syncSingleDocumentToSupabase(copyDoc, user?.id);
+    alert('Official letterhead successfully saved into client file!');
+  };
+
   // Multi-Select Batch Operations
   const handleBatchMoveDocsToFolder = (docIds: string[], targetFolderId?: string) => {
     if (docIds.length === 0) return;
@@ -392,6 +430,7 @@ export function App() {
   const handleBatchDeleteDocs = (docIds: string[]) => {
     if (docIds.length === 0) return;
     if (!window.confirm(`Are you sure you want to delete ${docIds.length} selected document${docIds.length > 1 ? 's' : ''}?`)) return;
+    deleteBatchDocumentsFromSupabase(docIds, user?.id).catch((err) => console.warn('Supabase batch delete note:', err));
     setDocuments((prev) => prev.filter((d) => !docIds.includes(d.id)));
     setSelectedDocIds([]);
     if (activeDocId && docIds.includes(activeDocId)) {
@@ -476,6 +515,20 @@ export function App() {
     if (user?.id) {
       // 1. Ensure user profile exists in Supabase so foreign key constraints succeed
       ensureUserProfileInSupabase(user).catch(() => {});
+
+      // 1.5 Hydrate master folders from Supabase
+      fetchFoldersFromSupabaseMaster().then((masterFolders) => {
+        if (masterFolders && masterFolders.length > 0) {
+          setFolders((prev) => {
+            const map = new Map<string, DocumentFolder>();
+            masterFolders.forEach((f) => map.set(f.id, f));
+            prev.forEach((f) => {
+              if (!map.has(f.id)) map.set(f.id, f);
+            });
+            return Array.from(map.values());
+          });
+        }
+      }).catch(() => {});
 
       // 2. Hydrate clients and folders from Supabase cloud
       fetchClientsFromSupabase(user.id).then((cloudClients) => {
@@ -633,7 +686,10 @@ export function App() {
   const clientTabs = useMemo(() => {
     if (!selectedClientId) return tabs;
     const filtered = tabs.filter((t) => t.clientId === selectedClientId);
-    if (filtered.length === 0) return tabs;
+    if (filtered.length === 0) {
+      const unassigned = tabs.filter((t) => !t.clientId);
+      return unassigned.length > 0 ? unassigned : [];
+    }
     return filtered;
   }, [tabs, selectedClientId]);
 
@@ -652,27 +708,29 @@ export function App() {
     return sortedTabs.find((t) => t.id === activeTabId) || sortedTabs[0] || {
       id: 'default',
       clientId: selectedClientId || 'default',
-      name: 'All Documents',
+      name: selectedClient ? (selectedClient.cameFor || 'General Documents') : 'All Documents',
       createdAt: new Date().toISOString()
     };
-  }, [sortedTabs, activeTabId, selectedClientId]);
+  }, [sortedTabs, activeTabId, selectedClientId, selectedClient]);
 
   // Folders under the active tab
   const tabFolders = useMemo(() => {
-    if (!activeTab?.id || activeTab.id === 'default') return folders;
-    const match = folders.filter((f) => f.collectionId === activeTab.id);
-    if (match.length > 0) return match;
-    return folders;
+    if (!activeTab?.id) return [];
+    if (activeTab.id === 'default') {
+      return folders.filter((f) => !f.collectionId || f.collectionId === 'default');
+    }
+    return folders.filter((f) => f.collectionId === activeTab.id);
   }, [folders, activeTab?.id]);
 
   // Documents under the active tab
   const tabDocuments = useMemo(() => {
-    let filtered = documents;
+    let filtered: DocumentItem[] = [];
     if (activeTab.id && activeTab.id !== 'default') {
-      const matchTab = documents.filter((d) => d.collectionId === activeTab.id);
-      if (matchTab.length > 0) {
-        filtered = matchTab;
-      }
+      filtered = documents.filter((d) => d.collectionId === activeTab.id);
+    } else if (selectedClientId) {
+      filtered = documents.filter((d) => d.clientId === selectedClientId);
+    } else {
+      filtered = documents;
     }
     return filtered
       .filter((d) => {
@@ -690,7 +748,7 @@ export function App() {
         // 'manual': preserve exact user ordered position
         return 0;
       });
-  }, [documents, activeTab.id, searchQuery, sortOption]);
+  }, [documents, activeTab.id, selectedClientId, searchQuery, sortOption]);
 
   // Active document
   const activeDoc = useMemo(() => {
@@ -841,6 +899,7 @@ export function App() {
     });
 
     const newItems: DocumentItem[] = [];
+    const updatedDocsMap = new Map<string, DocumentItem>();
 
     for (let idx = 0; idx < fileArray.length; idx++) {
       const file = fileArray[idx];
@@ -853,26 +912,46 @@ export function App() {
       });
 
       const fileType = detectFileType(file.name, file.type);
-      const docId = generateUUID();
+      const cleanFileName = file.name.trim().toLowerCase();
+      const existingDoc = documents.find(
+        (d) =>
+          d.collectionId === activeTab.id &&
+          !d.folderId &&
+          d.name.trim().toLowerCase() === cleanFileName
+      );
+
+      const docId = existingDoc ? existingDoc.id : generateUUID();
       const { url } = await uploadFileOnline(file, user?.id, docId);
 
-      const item: DocumentItem = {
-        id: docId,
-        clientId: selectedClientId || undefined,
-        collectionId: activeTab.id,
-        name: file.name,
-        fileType,
-        fileSize: file.size,
-        url,
-        hasFile: true,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      // Sync immediately online!
-      syncSingleDocumentToSupabase(item, user?.id);
-      newItems.push(item);
+      if (existingDoc) {
+        const updated: DocumentItem = {
+          ...existingDoc,
+          url,
+          fileType,
+          fileSize: file.size,
+          hasFile: true,
+          status: 'pending',
+          updatedAt: new Date().toISOString()
+        };
+        syncSingleDocumentToSupabase(updated, user?.id);
+        updatedDocsMap.set(existingDoc.id, updated);
+      } else {
+        const item: DocumentItem = {
+          id: docId,
+          clientId: selectedClientId || undefined,
+          collectionId: activeTab.id,
+          name: file.name,
+          fileType,
+          fileSize: file.size,
+          url,
+          hasFile: true,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        syncSingleDocumentToSupabase(item, user?.id);
+        newItems.push(item);
+      }
     }
 
     setUploadProgress({
@@ -887,9 +966,15 @@ export function App() {
       setUploadProgress((prev) => ({ ...prev, isUploading: false, status: 'completed' }));
     }, 2500);
 
-    setDocuments((prev) => [...newItems, ...prev]);
+    setDocuments((prev) => {
+      const result = prev.map((d) => updatedDocsMap.get(d.id) || d);
+      return [...newItems, ...result];
+    });
+
     if (newItems.length > 0) {
       setActiveDocId(newItems[0].id);
+    } else if (updatedDocsMap.size > 0) {
+      setActiveDocId(Array.from(updatedDocsMap.keys())[0]);
     }
   };
 
@@ -1199,6 +1284,7 @@ export function App() {
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this document item?')) {
+      deleteDocumentFromSupabase(id, user?.id).catch((err) => console.warn('Supabase delete note:', err));
       setDocuments((prev) => prev.filter((d) => d.id !== id));
       setSelectedDocIds((prev) => prev.filter((dId) => dId !== id));
       if (activeDocId === id) {
@@ -1266,34 +1352,62 @@ export function App() {
   const handleUploadFilesToFolder = async (files: FileList | File[], folderId?: string) => {
     const fileArray = Array.from(files);
     const newItems: DocumentItem[] = [];
+    const updatedDocsMap = new Map<string, DocumentItem>();
 
     for (const file of fileArray) {
       const fileType = detectFileType(file.name, file.type);
-      const docId = generateUUID();
+      const cleanFileName = file.name.trim().toLowerCase();
+      const existingDoc = documents.find(
+        (d) =>
+          d.collectionId === activeTab.id &&
+          (d.folderId || undefined) === (folderId || undefined) &&
+          d.name.trim().toLowerCase() === cleanFileName
+      );
+
+      const docId = existingDoc ? existingDoc.id : generateUUID();
       const { url } = await uploadFileOnline(file, user?.id, docId);
 
-      const item: DocumentItem = {
-        id: docId,
-        clientId: selectedClientId || undefined,
-        collectionId: activeTab.id,
-        folderId: folderId || undefined,
-        name: file.name,
-        fileType,
-        fileSize: file.size,
-        url,
-        hasFile: true,
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      syncSingleDocumentToSupabase(item, user?.id);
-      newItems.push(item);
+      if (existingDoc) {
+        const updated: DocumentItem = {
+          ...existingDoc,
+          url,
+          fileType,
+          fileSize: file.size,
+          hasFile: true,
+          status: 'pending',
+          updatedAt: new Date().toISOString()
+        };
+        syncSingleDocumentToSupabase(updated, user?.id);
+        updatedDocsMap.set(existingDoc.id, updated);
+      } else {
+        const item: DocumentItem = {
+          id: docId,
+          clientId: selectedClientId || undefined,
+          collectionId: activeTab.id,
+          folderId: folderId || undefined,
+          name: file.name,
+          fileType,
+          fileSize: file.size,
+          url,
+          hasFile: true,
+          status: 'pending',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        syncSingleDocumentToSupabase(item, user?.id);
+        newItems.push(item);
+      }
     }
 
-    setDocuments((prev) => [...newItems, ...prev]);
+    setDocuments((prev) => {
+      const result = prev.map((d) => updatedDocsMap.get(d.id) || d);
+      return [...newItems, ...result];
+    });
+
     if (newItems.length > 0) {
       setActiveDocId(newItems[0].id);
+    } else if (updatedDocsMap.size > 0) {
+      setActiveDocId(Array.from(updatedDocsMap.keys())[0]);
     }
   };
 
@@ -1553,8 +1667,17 @@ export function App() {
     role: 'staff'
   };
 
+  const activeFirmTheme = FIRM_THEMES.find(
+    (t) =>
+      t.hex.toLowerCase() === (effectiveUser.firmThemeColor || '').toLowerCase() ||
+      t.id === effectiveUser.firmThemeColor
+  ) || FIRM_THEMES[0];
+
   return (
-    <div className="h-screen w-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35] overflow-hidden">
+    <div 
+      className="h-screen w-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35] overflow-hidden"
+      style={{ borderTop: `3px solid ${activeFirmTheme.hex}` }}
+    >
       {/* Top Header */}
       <Header
         user={effectiveUser}
@@ -1589,6 +1712,28 @@ export function App() {
         onExportCurrentAsPdf={() => activeDoc && exportAsPdf(activeDoc)}
         onExportCurrentAsJpg={() => activeDoc && exportAsJpg(activeDoc)}
         onExportAll={() => exportMultipleDocuments(tabDocuments, `${activeTab.name}_Complete.zip`, folders)}
+        onExportMergedPdf={(docsToMerge) => {
+          const targetDocs = docsToMerge || (selectedDocIds.length > 0 ? selectedDocuments : tabDocuments);
+          exportMergedPdf(targetDocs, `${activeTab.name}_Merged.pdf`);
+        }}
+        onExportAsJpgZip={(docsToExport) => {
+          const targetDocs = docsToExport || (selectedDocIds.length > 0 ? selectedDocuments : tabDocuments);
+          exportAsJpgZip(targetDocs, `${activeTab.name}_JPG.zip`);
+        }}
+        onPrintAll={() => {
+          const docsToPrint = tabDocuments.filter((d) => d.hasFile || d.content || d.url);
+          if (docsToPrint.length === 0) {
+            alert('No printable documents found in this tab.');
+            return;
+          }
+          printMultipleDocuments(docsToPrint, {
+            solicitor: effectiveUser,
+            clientName: selectedClient?.name,
+            tabTitle: activeTab.name
+          });
+        }}
+        onOpenLetterhead={() => setIsLetterheadOpen(true)}
+        onEditClient={() => selectedClient && handleOpenEditClient(selectedClient, {} as any)}
       />
 
       {/* LEVEL 1: Main Company Page & Clients Directory */}
@@ -1637,6 +1782,8 @@ export function App() {
             documentCounts={documentCounts}
             sortOption={sortOption}
             onToggleSort={() => setSortOption((prev) => (prev === 'date' ? 'name' : 'date'))}
+            themeHex={activeFirmTheme.hex}
+            themeBg={activeFirmTheme.lightBg}
           />
 
           {/* Document Workspace */}
@@ -1713,6 +1860,14 @@ export function App() {
                   exportAsJpg(doc);
                 }}
                 onOpenUploadModal={() => setIsUploadModalOpen(true)}
+                onOpenLetterhead={() => setIsLetterheadOpen(true)}
+                onPrintMultipleDocuments={(docs) => {
+                  printMultipleDocuments(docs, {
+                    solicitor: effectiveUser,
+                    clientName: selectedClient?.name,
+                    tabTitle: activeTab.name
+                  });
+                }}
                 onAddPageToDoc={handleAddPageToDoc}
                 onRenameDocument={handleRenameDocument}
                 onCreateFolder={handleCreateFolder}
@@ -1733,7 +1888,10 @@ export function App() {
             </div>
 
             {/* Master Document Viewer */}
-            <div className={`${mobilePane === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col bg-[#f8fafd] h-full overflow-hidden min-h-0`}>
+            <div 
+              className={`${mobilePane === 'list' ? 'hidden md:flex' : 'flex'} flex-1 flex-col h-full overflow-hidden min-h-0`}
+              style={{ backgroundColor: activeFirmTheme.lightBg }}
+            >
               {/* Mobile Back Button to return to Document List */}
               <div className="md:hidden bg-white border-b border-[#dadce0] px-3 py-2 flex items-center justify-between z-30 shadow-xs flex-shrink-0">
                 <button
@@ -1812,6 +1970,19 @@ export function App() {
           onSave={handleSaveEditClient}
         />
       )}
+
+      <LetterheadModal
+        isOpen={isLetterheadOpen}
+        onClose={() => { setIsLetterheadOpen(false); setLetterheadInitialDoc(null); }}
+        solicitor={effectiveUser}
+        client={selectedClient}
+        currentTab={activeTab}
+        folders={tabFolders}
+        clients={clients}
+        onSaveDocumentToClient={handleSaveLetterheadDocument}
+        onCopyLetterToOtherClient={handleCopyLetterheadToOtherClient}
+        initialDocument={letterheadInitialDoc}
+      />
       <UploadDocumentsModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}

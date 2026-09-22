@@ -333,8 +333,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   return (
     <div className="w-full h-full flex flex-col relative overflow-hidden bg-[#f0f3f8]">
-      {/* PDF View Mode Switcher Badge */}
-      <div className="absolute top-3 right-4 z-20 flex items-center gap-1 bg-white/95 backdrop-blur-xs border border-[#dadce0] rounded-xl p-1 shadow-sm text-xs select-none">
+      {/* PDF View Mode Switcher Badge (Positioned left so it never overlaps top-right dropdown menus) */}
+      <div className="absolute top-3 left-4 z-10 flex items-center gap-1 bg-white/95 backdrop-blur-xs border border-[#dadce0] rounded-xl p-1 shadow-sm text-xs select-none">
         <button
           onClick={() => setViewMode('continuous')}
           className={`px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1.5 ${

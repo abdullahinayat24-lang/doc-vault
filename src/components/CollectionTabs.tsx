@@ -27,6 +27,8 @@ interface CollectionTabsProps {
   documentCounts: Record<string, { total: number; missing: number; approved: number }>;
   sortOption: 'name' | 'date' | 'manual';
   onToggleSort: () => void;
+  themeHex?: string;
+  themeBg?: string;
 }
 
 export const CollectionTabs: React.FC<CollectionTabsProps> = ({
@@ -39,7 +41,9 @@ export const CollectionTabs: React.FC<CollectionTabsProps> = ({
   onShareTab,
   documentCounts,
   sortOption,
-  onToggleSort
+  onToggleSort,
+  themeHex,
+  themeBg
 }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [newTabName, setNewTabName] = useState('');
@@ -122,9 +126,13 @@ export const CollectionTabs: React.FC<CollectionTabsProps> = ({
                   ? 'border-[#1a73e8] text-[#1a73e8] font-medium bg-[#f8fafd]'
                   : 'border-transparent text-[#5f6368] hover:text-[#202124] hover:bg-[#f1f3f4]'
               }`}
+              style={isActive && themeHex ? { borderBottomColor: themeHex, color: themeHex, backgroundColor: themeBg || '#f8fafd' } : undefined}
               onClick={() => onSelectTab(tab.id)}
             >
-              <span className={isActive ? 'text-[#1a73e8]' : 'text-[#5f6368] group-hover:text-[#202124]'}>
+              <span 
+                className={isActive ? 'text-[#1a73e8]' : 'text-[#5f6368] group-hover:text-[#202124]'}
+                style={isActive && themeHex ? { color: themeHex } : undefined}
+              >
                 {getTabIcon(tab)}
               </span>
 
@@ -161,6 +169,7 @@ export const CollectionTabs: React.FC<CollectionTabsProps> = ({
                   className={`text-[11px] px-1.5 py-0.2 rounded-full font-medium ${
                     isActive ? 'bg-[#e8f0fe] text-[#1a73e8]' : 'bg-[#f1f3f4] text-[#5f6368]'
                   }`}
+                  style={isActive && themeHex ? { color: themeHex, backgroundColor: themeBg ? `${themeBg}` : '#e8f0fe' } : undefined}
                   title="Total documents"
                 >
                   {stats.total}

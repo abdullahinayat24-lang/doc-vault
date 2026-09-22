@@ -507,8 +507,43 @@ export const syncFoldersToSupabase = async (
         .update({ notes: updatedNotes })
         .eq('id', safeClientId);
     }
+
+    // Also persist firm-wide folders master in shared_links so incognito and any device always gets folders
+    const resolvedSolId = isUUID(resolvedSolicitorId) ? resolvedSolicitorId : '4da299cb-ab44-42e5-981b-36de3e4a2555';
+    await supabase.from('shared_links').upsert({
+      id: 'firm_folders_master',
+      title: 'Firm Folders Master',
+      share_type: 'viewer',
+      scope: 'collection',
+      target_ids: [],
+      passcode: '0000',
+      solicitor_id: resolvedSolId,
+      payload: { folders }
+    }, { onConflict: 'id' });
   } catch (err) {
     console.warn('Supabase folder sync note:', err);
+  }
+};
+
+export const fetchFoldersFromSupabaseMaster = async (): Promise<DocumentFolder[] | null> => {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('shared_links')
+      .select('payload')
+      .eq('id', 'firm_folders_master')
+      .maybeSingle();
+
+    if (!error && data?.payload) {
+      const p = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+      if (Array.isArray(p?.folders) && p.folders.length > 0) {
+        return p.folders;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('Supabase folder master fetch note:', err);
+    return null;
   }
 };
 
@@ -665,6 +700,44 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
   } catch (err) {
     console.warn('Failed to fetch user documents from Supabase:', err);
     return null;
+  }
+};
+
+export const deleteDocumentFromSupabase = async (docId: string, solicitorId?: string): Promise<boolean> => {
+  if (!supabase || !docId) return false;
+  try {
+    const safeDocId = toDeterministicUUID(docId);
+    let query = supabase.from('documents').delete().or(`id.eq.${docId},id.eq.${safeDocId}`);
+    const { error } = await query;
+    if (error) {
+      console.warn('Supabase deleteDocument note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase deleteDocument exception:', err);
+    return false;
+  }
+};
+
+export const deleteBatchDocumentsFromSupabase = async (docIds: string[], solicitorId?: string): Promise<boolean> => {
+  if (!supabase || !docIds || docIds.length === 0) return false;
+  try {
+    const allIds = new Set<string>();
+    docIds.forEach(id => {
+      allIds.add(id);
+      allIds.add(toDeterministicUUID(id));
+    });
+    const idArray = Array.from(allIds);
+    const { error } = await supabase.from('documents').delete().in('id', idArray);
+    if (error) {
+      console.warn('Supabase deleteBatchDocuments note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase deleteBatchDocuments exception:', err);
+    return false;
   }
 };
 
@@ -826,11 +899,11 @@ export const fetchShareFromSupabase = async (
       payload: data.payload
     };
 
-    let docs: DocumentItem[] = data.payload?.docs || [];
-    let folders: DocumentFolder[] = data.payload?.folders || [];
+    let docs: DocumentItem[] = [];
+    let folders: DocumentFolder[] = [];
 
-    // Fallback 1: Query Supabase documents table directly if payload has no docs
-    if (docs.length === 0 && data.target_ids && data.target_ids.length > 0) {
+    // Priority 1: Query live documents from Supabase directly
+    if (data.target_ids && data.target_ids.length > 0) {
       try {
         let docQuery = supabase.from('documents').select('*');
         if (data.scope === 'collection') {
@@ -870,7 +943,20 @@ export const fetchShareFromSupabase = async (
       }
     }
 
-    // Fallback 2: Query Supabase clients table directly to extract folders if missing
+    // Fallback 1.5: If live query returned 0 docs, use snapshot payload
+    if (docs.length === 0 && data.payload?.docs && data.payload.docs.length > 0) {
+      docs = data.payload.docs;
+    }
+
+    // Priority 2: Folders from Master store or client notes
+    const masterFolders = await fetchFoldersFromSupabaseMaster();
+    if (masterFolders && masterFolders.length > 0) {
+      folders = masterFolders;
+    } else if (data.payload?.folders && data.payload.folders.length > 0) {
+      folders = data.payload.folders;
+    }
+
+    // Fallback 2.5: Query Supabase clients table directly to extract folders if missing
     if (folders.length === 0) {
       try {
         const clientId = data.client_id || docs[0]?.clientId;
@@ -2031,6 +2117,164 @@ export const exportMultipleDocuments = async (
 
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   saveAs(zipBlob, zipFileName);
+};
+
+export const exportMergedPdf = async (
+  docs: DocumentItem[],
+  outputFileName: string = 'Merged_Documents.pdf',
+  onProgress?: (msg: string) => void
+) => {
+  const availableDocs = docs.filter(d => d.hasFile || d.content || d.url);
+  if (availableDocs.length === 0) {
+    alert('No documents with uploaded files found to merge.');
+    return;
+  }
+
+  onProgress?.(`Starting PDF merge for ${availableDocs.length} documents...`);
+  let masterPdf: jsPDF | null = null;
+
+  for (let docIdx = 0; docIdx < availableDocs.length; docIdx++) {
+    const doc = availableDocs[docIdx];
+    onProgress?.(`Processing (${docIdx + 1}/${availableDocs.length}): ${doc.name}...`);
+
+    try {
+      if (doc.pages && doc.pages.length > 0) {
+        for (let pIdx = 0; pIdx < doc.pages.length; pIdx++) {
+          const page = doc.pages[pIdx];
+          const rot = page.rotation !== undefined ? page.rotation : (doc.rotation || 0);
+
+          if (page.fileType === 'pdf' || (page.url && page.url.toLowerCase().includes('.pdf'))) {
+            const pdfJpgs = await convertPdfToJpgBlobs(page.url, rot);
+            for (const item of pdfJpgs) {
+              const imgUrl = URL.createObjectURL(item.blob);
+              const img = await loadImage(imgUrl);
+              URL.revokeObjectURL(imgUrl);
+              const orientation = img.width > img.height ? 'landscape' : 'portrait';
+              if (!masterPdf) {
+                masterPdf = new jsPDF({ orientation, unit: 'px', format: [img.width, img.height] });
+                masterPdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+              } else {
+                masterPdf.addPage([img.width, img.height], orientation);
+                masterPdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+              }
+            }
+          } else if (page.url) {
+            const img = await loadImage(page.url);
+            const canvas = getRotatedCanvas(img, rot);
+            const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+            if (!masterPdf) {
+              masterPdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height] });
+              masterPdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+            } else {
+              masterPdf.addPage([canvas.width, canvas.height], orientation);
+              masterPdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+            }
+          }
+        }
+      } else if (doc.fileType === 'pdf' || (doc.url && doc.url.toLowerCase().includes('.pdf'))) {
+        const pdfJpgs = await convertPdfToJpgBlobs(doc.url, doc.rotation || 0);
+        for (const item of pdfJpgs) {
+          const imgUrl = URL.createObjectURL(item.blob);
+          const img = await loadImage(imgUrl);
+          URL.revokeObjectURL(imgUrl);
+          const orientation = img.width > img.height ? 'landscape' : 'portrait';
+          if (!masterPdf) {
+            masterPdf = new jsPDF({ orientation, unit: 'px', format: [img.width, img.height] });
+            masterPdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+          } else {
+            masterPdf.addPage([img.width, img.height], orientation);
+            masterPdf.addImage(img, 'JPEG', 0, 0, img.width, img.height);
+          }
+        }
+      } else if (doc.url) {
+        const img = await loadImage(doc.url);
+        const canvas = getRotatedCanvas(img, doc.rotation || 0);
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        if (!masterPdf) {
+          masterPdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height] });
+          masterPdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+        } else {
+          masterPdf.addPage([canvas.width, canvas.height], orientation);
+          masterPdf.addImage(imgData, 'JPEG', 0, 0, canvas.width, canvas.height);
+        }
+      } else if (doc.content) {
+        if (!masterPdf) {
+          masterPdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+        } else {
+          masterPdf.addPage('a4', 'portrait');
+        }
+        masterPdf.setFontSize(16);
+        masterPdf.text(doc.name, 40, 50);
+        masterPdf.setFontSize(11);
+        const lines = masterPdf.splitTextToSize(doc.content.replace(/<[^>]*>/g, ''), 515);
+        masterPdf.text(lines, 40, 80);
+      }
+    } catch (err) {
+      console.warn(`Error processing ${doc.name} for merged PDF:`, err);
+    }
+  }
+
+  if (masterPdf) {
+    const finalName = outputFileName.endsWith('.pdf') ? outputFileName : `${outputFileName}.pdf`;
+    masterPdf.save(finalName);
+    onProgress?.('Merged PDF downloaded successfully!');
+  } else {
+    alert('Failed to generate merged PDF. Please check that the files are valid images or PDFs.');
+  }
+};
+
+export const exportAsJpgZip = async (
+  docs: DocumentItem[],
+  zipFileName: string = 'Documents_JPG.zip',
+  onProgress?: (msg: string) => void
+) => {
+  const availableDocs = docs.filter(d => d.hasFile || d.url);
+  if (availableDocs.length === 0) {
+    alert('No uploaded files found to convert to JPG.');
+    return;
+  }
+
+  const zip = new JSZip();
+  const root = zip.folder('JPG_Exports') || zip;
+  let addedCount = 0;
+
+  for (let idx = 0; idx < availableDocs.length; idx++) {
+    const doc = availableDocs[idx];
+    onProgress?.(`Converting (${idx + 1}/${availableDocs.length}): ${doc.name}...`);
+    const cleanDocName = (doc.name || 'Document').replace(/[\\/:*?"<>|]/g, '_').replace(/\.[^/.]+$/, '');
+
+    try {
+      if (doc.fileType === 'pdf' || (doc.url && doc.url.toLowerCase().includes('.pdf'))) {
+        const pdfJpgs = await convertPdfToJpgBlobs(doc.url, doc.rotation || 0);
+        pdfJpgs.forEach((item, pIdx) => {
+          const name = pdfJpgs.length > 1 ? `${cleanDocName}_Page_${pIdx + 1}.jpg` : `${cleanDocName}.jpg`;
+          root.file(name, item.blob);
+          addedCount++;
+        });
+      } else if (doc.url) {
+        const img = await loadImage(doc.url);
+        const canvas = getRotatedCanvas(img, doc.rotation || 0);
+        const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+        if (blob) {
+          root.file(`${cleanDocName}.jpg`, blob);
+          addedCount++;
+        }
+      }
+    } catch (e) {
+      console.warn(`JPG export error for ${doc.name}:`, e);
+    }
+  }
+
+  if (addedCount > 0) {
+    const content = await zip.generateAsync({ type: 'blob' });
+    const finalZipName = zipFileName.endsWith('.zip') ? zipFileName : `${zipFileName}.zip`;
+    saveAs(content, finalZipName);
+    onProgress?.('JPG Zip downloaded!');
+  } else {
+    alert('Could not convert files to JPG.');
+  }
 };
 
 // ============================================================================
