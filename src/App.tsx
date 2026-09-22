@@ -52,7 +52,8 @@ import {
   getPromoCodes,
   getStaff,
   saveStaffMember,
-  deleteStaffMember
+  deleteStaffMember,
+  fetchStaffFromSupabase
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -70,6 +71,9 @@ import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
 import { ChangePinModal } from './components/Modals/ChangePinModal';
 import { DiscountKeysModal } from './components/Modals/DiscountKeysModal';
+import { StaffLogin } from './components/StaffPortal/StaffLogin';
+import { StaffManagementModal } from './components/Modals/StaffManagementModal';
+import { UploadProgressToast, UploadProgressInfo } from './components/UploadProgressToast';
 import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
 
 
@@ -111,6 +115,33 @@ export function App() {
   const [shareParam, setShareParam] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('share');
+  });
+
+  // Staff Portal URL parameter (?portal=staff)
+  const [portalParam, setPortalParam] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('portal');
+  });
+
+  // Active Staff Session (persisted in sessionStorage)
+  const [currentStaffSession, setCurrentStaffSession] = useState<StaffMember | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('docvault_staff_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [isStaffManagementOpen, setIsStaffManagementOpen] = useState<boolean>(false);
+
+  // Upload Progress State
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressInfo>({
+    isUploading: false,
+    totalFiles: 0,
+    currentFileIndex: 0,
+    currentFileName: '',
+    status: 'completed'
   });
 
   // Decode embedded document payload from URL hash (#data=...) for cross-device shared links
@@ -261,13 +292,40 @@ export function App() {
   // Staff & Team Directory
   const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
 
+  // Fetch updated staff directory from Supabase on mount
+  useEffect(() => {
+    fetchStaffFromSupabase().then((remoteStaff) => {
+      if (remoteStaff && remoteStaff.length > 0) {
+        setStaffList(remoteStaff);
+      }
+    });
+  }, []);
+
+  const handleStaffLogout = () => {
+    sessionStorage.removeItem('docvault_staff_session');
+    setCurrentStaffSession(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('portal');
+    window.history.replaceState({}, '', url.toString());
+    setPortalParam(null);
+  };
+
+  // Filter clients for active staff session based on assigned cases
+  const visibleClients = useMemo(() => {
+    if (!currentStaffSession) return clients;
+    if (!currentStaffSession.assignedClientIds || currentStaffSession.assignedClientIds.length === 0) {
+      return clients;
+    }
+    return clients.filter((c) => currentStaffSession.assignedClientIds.includes(c.id));
+  }, [clients, currentStaffSession]);
+
   const handleAddStaffMember = (member: StaffMember) => {
-    saveStaffMember(member);
+    saveStaffMember(member, user?.id);
     setStaffList(getStaff());
   };
 
   const handleDeleteStaffMember = (id: string) => {
-    deleteStaffMember(id);
+    deleteStaffMember(id, user?.id);
     setStaffList(getStaff());
   };
 
@@ -742,6 +800,10 @@ export function App() {
   };
 
   const handleDeleteTab = (tabId: string) => {
+    if (currentStaffSession && currentStaffSession.permissions?.canDelete === false) {
+      alert('Your staff account does not have permission to delete case tabs.');
+      return;
+    }
     if (clientTabs.length <= 1) return;
     if (confirm('Delete this tab and its documents?')) {
       deleteTabFromSupabase(tabId);
@@ -756,10 +818,33 @@ export function App() {
 
   // Document uploads
   const handleUploadFiles = async (files: FileList | File[]) => {
+    if (currentStaffSession && currentStaffSession.permissions?.canUpload === false) {
+      alert('Your staff account does not have permission to upload documents.');
+      return;
+    }
     const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    setUploadProgress({
+      isUploading: true,
+      totalFiles: fileArray.length,
+      currentFileIndex: 0,
+      currentFileName: fileArray[0].name,
+      status: 'uploading'
+    });
+
     const newItems: DocumentItem[] = [];
 
-    for (const file of fileArray) {
+    for (let idx = 0; idx < fileArray.length; idx++) {
+      const file = fileArray[idx];
+      setUploadProgress({
+        isUploading: true,
+        totalFiles: fileArray.length,
+        currentFileIndex: idx + 1,
+        currentFileName: file.name,
+        status: 'uploading'
+      });
+
       const fileType = detectFileType(file.name, file.type);
       const docId = generateUUID();
       const { url } = await uploadFileOnline(file, user?.id, docId);
@@ -782,6 +867,18 @@ export function App() {
       syncSingleDocumentToSupabase(item, user?.id);
       newItems.push(item);
     }
+
+    setUploadProgress({
+      isUploading: false,
+      totalFiles: fileArray.length,
+      currentFileIndex: fileArray.length,
+      currentFileName: 'Upload Complete',
+      status: 'completed'
+    });
+
+    setTimeout(() => {
+      setUploadProgress((prev) => ({ ...prev, isUploading: false, status: 'completed' }));
+    }, 2500);
 
     setDocuments((prev) => [...newItems, ...prev]);
     if (newItems.length > 0) {
@@ -899,6 +996,18 @@ export function App() {
   };
 
   const handleUploadToFileSlot = async (docId: string, file: File) => {
+    if (currentStaffSession && currentStaffSession.permissions?.canUpload === false) {
+      alert('Your staff account does not have permission to upload documents.');
+      return;
+    }
+    setUploadProgress({
+      isUploading: true,
+      totalFiles: 1,
+      currentFileIndex: 1,
+      currentFileName: file.name,
+      status: 'uploading'
+    });
+
     const fileType = detectFileType(file.name, file.type);
     const { url } = await uploadFileOnline(file, user?.id, docId);
 
@@ -922,6 +1031,17 @@ export function App() {
       })
     );
     setActiveDocId(docId);
+
+    setUploadProgress({
+      isUploading: false,
+      totalFiles: 1,
+      currentFileIndex: 1,
+      currentFileName: file.name,
+      status: 'completed'
+    });
+    setTimeout(() => {
+      setUploadProgress((prev) => ({ ...prev, isUploading: false, status: 'completed' }));
+    }, 2000);
   };
 
   const handleCreateDocumentSlot = (title: string, fileType: FileType) => {
@@ -1368,8 +1488,27 @@ export function App() {
     );
   }
 
-  // If not logged in, show the Create Your Account or Sign In screen
-  if (!user) {
+  // If ?portal=staff is requested and no staff member is logged in, show the Staff Login screen!
+  if (portalParam === 'staff' && !currentStaffSession) {
+    return (
+      <StaffLogin
+        companyName={user?.companyName || 'DocVault Legal Chambers'}
+        companyLogo={user?.companyLogo}
+        onStaffLogin={(member) => {
+          setCurrentStaffSession(member);
+        }}
+        onBackToSolicitor={() => {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('portal');
+          window.history.replaceState({}, '', url.toString());
+          setPortalParam(null);
+        }}
+      />
+    );
+  }
+
+  // If not logged in as Solicitor and not in a staff session, show the Create Your Account or Sign In screen
+  if (!user && !currentStaffSession) {
     return (
       <AuthScreen
         onAuthenticated={(profile) => {
@@ -1380,11 +1519,22 @@ export function App() {
     );
   }
 
+  // Effective profile for display
+  const effectiveUser: SolicitorProfile = user || {
+    id: '4da299cb-ab44-42e5-981b-36de3e4a2555',
+    email: currentStaffSession?.email || 'staff@lawchambers.co.uk',
+    displayName: currentStaffSession?.name || 'Staff Member',
+    companyName: 'DocVault Legal Chambers',
+    pinCode: '1234',
+    isDemoMode: false,
+    role: 'staff'
+  };
+
   return (
     <div className="h-screen w-screen bg-white flex flex-col selection:bg-[#c2e7ff] selection:text-[#001d35] overflow-hidden">
       {/* Top Header */}
       <Header
-        user={user}
+        user={effectiveUser}
         selectedClient={selectedClient}
         onBackToClients={() => {
           setSelectedClientId(null);
@@ -1396,8 +1546,13 @@ export function App() {
         onOpenShare={() => setIsShareOpen(true)}
         onOpenAuth={() => setIsAuthOpen(true)}
         onOpenPricing={() => setIsPricingOpen(true)}
+        onOpenStaffManagement={() => setIsStaffManagementOpen(true)}
+        currentStaffSession={currentStaffSession}
+        onStaffLogout={handleStaffLogout}
         onSignOut={() => {
-          if (confirm('Are you sure you want to sign out?')) {
+          if (currentStaffSession) {
+            handleStaffLogout();
+          } else if (confirm('Are you sure you want to sign out?')) {
             saveSolicitorProfile(null);
             setUser(null);
           }
@@ -1416,13 +1571,19 @@ export function App() {
       {/* LEVEL 1: Main Company Page & Clients Directory */}
       {!selectedClient ? (
         <CompanyDashboard
-          solicitor={user}
-          clients={clients}
+          solicitor={effectiveUser}
+          clients={visibleClients}
           tabs={tabs}
           documents={documents}
           staffList={staffList}
           onSelectClient={handleSelectClient}
-          onOpenNewClientModal={() => setIsNewClientOpen(true)}
+          onOpenNewClientModal={() => {
+            if (currentStaffSession && currentStaffSession.permissions?.canEdit === false) {
+              alert('Your staff account does not have permission to add new client cases.');
+              return;
+            }
+            setIsNewClientOpen(true);
+          }}
           onDeleteClient={handleDeleteClient}
           onQuickShareClient={handleQuickShareClient}
           onEditCompanyProfile={() => setIsAuthOpen(true)}
@@ -1596,7 +1757,7 @@ export function App() {
         allTabFolders={tabFolders}
         currentTab={activeTab}
         onSaveShare={(share) => saveShare(share)}
-        user={user}
+        user={effectiveUser}
       />
 
       <LockScreenModal
@@ -1649,6 +1810,27 @@ export function App() {
         isOpen={isDiscountKeysOpen}
         onClose={() => setIsDiscountKeysOpen(false)}
       />
+
+      <StaffManagementModal
+        isOpen={isStaffManagementOpen}
+        onClose={() => setIsStaffManagementOpen(false)}
+        staffList={staffList}
+        clients={clients}
+        onSaveStaffMember={(member) => {
+          saveStaffMember(member, user?.id);
+          setStaffList(getStaff());
+        }}
+        onDeleteStaffMember={(id) => {
+          deleteStaffMember(id, user?.id);
+          setStaffList(getStaff());
+        }}
+        onOpenStaffPortal={() => {
+          setIsStaffManagementOpen(false);
+          setPortalParam('staff');
+        }}
+      />
+
+      <UploadProgressToast progress={uploadProgress} />
 
       {/* FOOLPROOF 30-DAY TRIAL EXPIRED LOCKOUT OVERLAY */}
       {trial.isExpired && !isOwner && !trialUnlocked && (

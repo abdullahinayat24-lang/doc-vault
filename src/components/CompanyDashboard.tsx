@@ -658,12 +658,23 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!newStaffName.trim()) return;
+                  const cleanName = newStaffName.trim();
+                  const cleanUser = cleanName.toLowerCase().replace(/[^a-z0-9]/g, '');
                   const newMember: StaffMember = {
                     id: 'staff_' + Math.random().toString(36).substring(2, 9),
-                    name: newStaffName.trim(),
+                    name: cleanName,
                     role: newStaffRole,
-                    email: newStaffEmail.trim() || `${newStaffName.toLowerCase().replace(/\s+/g, '.')}@lawfirm.co.uk`,
+                    email: newStaffEmail.trim() || `${cleanUser}@lawfirm.co.uk`,
                     phone: newStaffPhone.trim() || '+44 20 7946 0000',
+                    username: cleanUser,
+                    password: 'password123',
+                    assignedClientIds: [],
+                    permissions: {
+                      canView: true,
+                      canUpload: true,
+                      canEdit: true,
+                      canDelete: newStaffRole === 'Partner'
+                    },
                     avatarColor: ['#1a73e8', '#137333', '#9334e6', '#d93025', '#e37400'][Math.floor(Math.random() * 5)],
                     createdAt: new Date().toISOString()
                   };

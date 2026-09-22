@@ -22,7 +22,7 @@ import {
   Clock,
   Tag
 } from 'lucide-react';
-import { SolicitorProfile, DocumentItem, ClientRecord } from '../types';
+import { SolicitorProfile, DocumentItem, ClientRecord, StaffMember } from '../types';
 import { getTrialStatus } from '../lib/storage';
 
 
@@ -39,6 +39,9 @@ interface HeaderProps {
   onOpenPricing?: () => void;
   onChangePinClick?: () => void;
   onOpenDiscountKeys?: () => void;
+  onOpenStaffManagement?: () => void;
+  currentStaffSession?: StaffMember | null;
+  onStaffLogout?: () => void;
   selectedCount: number;
   activeDocument: DocumentItem | null;
   onExportSelected: () => void;
@@ -63,6 +66,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPricing,
   onChangePinClick,
   onOpenDiscountKeys,
+  onOpenStaffManagement,
+  currentStaffSession,
+  onStaffLogout,
   selectedCount,
   activeDocument,
   onExportSelected,
@@ -246,19 +252,61 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Share Button */}
-        {selectedClient && (
+        {/* Share Button */}
+        {selectedClient && !currentStaffSession && (
           <button
             onClick={onOpenShare}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium bg-[#1a73e8] hover:bg-[#1557b0] text-white rounded-lg transition-colors shadow-sm"
-            title="Share Document Uploader or Viewer with client (4-digit PIN)"
+            title="Share Document Portal with client (4-digit PIN)"
           >
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline">Share</span>
           </button>
         )}
 
+        {/* Staff Management Button for Solicitor */}
+        {!currentStaffSession && onOpenStaffManagement && (
+          <button
+            onClick={onOpenStaffManagement}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] rounded-lg border border-[#1a73e8]/30 transition-colors shadow-xs"
+            title="Manage Staff Accounts, Passwords & Permissions"
+          >
+            <Users className="w-4 h-4" />
+            <span className="hidden md:inline">Staff Team</span>
+          </button>
+        )}
+
+        {/* Staff Session Indicator Badge */}
+        {currentStaffSession && (
+          <div className="flex items-center gap-2 bg-[#e8f0fe] border border-[#c2e7ff] px-3 py-1.5 rounded-xl text-xs">
+            <div
+              style={{ backgroundColor: currentStaffSession.avatarColor || '#1a73e8' }}
+              className="w-6 h-6 rounded-full text-white flex items-center justify-center font-bold text-xs shadow-xs"
+            >
+              {currentStaffSession.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="text-left">
+              <div className="font-bold text-[#174ea6] leading-tight">
+                {currentStaffSession.name}
+              </div>
+              <div className="text-[10px] text-[#1a73e8] leading-none">
+                {currentStaffSession.role} • Staff
+              </div>
+            </div>
+            {onStaffLogout && (
+              <button
+                onClick={onStaffLogout}
+                className="ml-2 px-2 py-0.5 bg-white hover:bg-[#fce8e6] text-[#d93025] rounded-md font-semibold text-[11px] border border-[#fad2cf] transition-colors"
+                title="Log out of Staff Session"
+              >
+                Log Out
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Subscription Plans & Pricing Button */}
-        {onOpenPricing && (
+        {!currentStaffSession && onOpenPricing && (
           <button
             onClick={onOpenPricing}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-[#1a73e8] bg-[#e8f0fe] hover:bg-[#d2e3fc] rounded-lg border border-[#1a73e8]/30 transition-colors shadow-xs"
@@ -270,7 +318,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Trial badge */}
-        {trial.isActive && (
+        {!currentStaffSession && trial.isActive && (
           <button
             onClick={onOpenPricing}
             className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-[#1a73e8] bg-[#e8f0fe] border border-[#1a73e8]/30 rounded-full hover:bg-[#d2e3fc] transition-colors"
@@ -282,16 +330,19 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Lock Screen / Privacy Button */}
-        <button
-          onClick={onLockSession}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#3c4043] hover:text-[#d93025] hover:bg-[#fce8e6]/60 rounded-lg border border-[#dadce0] transition-colors shadow-sm group"
-          title="Lock Screen with 4-digit PIN"
-        >
-          <Lock className="w-4 h-4 text-[#5f6368] group-hover:text-[#d93025] transition-colors" />
-          <span className="hidden md:inline">Lock</span>
-        </button>
+        {!currentStaffSession && (
+          <button
+            onClick={onLockSession}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-[#3c4043] hover:text-[#d93025] hover:bg-[#fce8e6]/60 rounded-lg border border-[#dadce0] transition-colors shadow-sm group"
+            title="Lock Screen with 4-digit PIN"
+          >
+            <Lock className="w-4 h-4 text-[#5f6368] group-hover:text-[#d93025] transition-colors" />
+            <span className="hidden md:inline">Lock</span>
+          </button>
+        )}
 
         {/* Solicitor Profile & ID */}
+        {!currentStaffSession && (
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
@@ -395,6 +446,18 @@ export const Header: React.FC<HeaderProps> = ({
                       <span>Special Discount Keys</span>
                     </button>
                   )}
+                  {onOpenStaffManagement && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenStaffManagement();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#202124] hover:bg-[#f1f3f4] flex items-center gap-2 transition-colors"
+                    >
+                      <Users className="w-4 h-4 text-[#1a73e8]" />
+                      <span>Staff Team &amp; Passwords</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       setShowUserMenu(false);
@@ -420,6 +483,7 @@ export const Header: React.FC<HeaderProps> = ({
             </>
           )}
         </div>
+        )}
       </div>
     </header>
   );

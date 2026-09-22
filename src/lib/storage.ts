@@ -386,28 +386,7 @@ export const uploadFileOnline = async (
     }
   }
 
-  // Strategy 2: High-capacity cloud storage (Litterbox, up to 1GB with CORS)
-  try {
-    const fd = new FormData();
-    fd.append('reqtype', 'fileupload');
-    fd.append('time', '72h');
-    fd.append('fileToUpload', file, safeName);
-
-    const res = await fetch('https://litterbox.catbox.moe/resources/internals/api.php', {
-      method: 'POST',
-      body: fd
-    });
-    if (res.ok) {
-      const onlineUrl = (await res.text()).trim();
-      if (onlineUrl && onlineUrl.startsWith('http')) {
-        return { url: onlineUrl, online: true };
-      }
-    }
-  } catch (e) {
-    console.warn('Litterbox upload note:', e);
-  }
-
-  // Strategy 3: Fast reliable online cloud binary store (Bytebin for files < 10MB)
+  // Strategy 2: Fast reliable online cloud binary store (Bytebin for files < 10MB)
   if (file.size < 10 * 1024 * 1024) {
     try {
       const res = await fetch('https://bytebin.lucko.me/post', {
@@ -425,8 +404,28 @@ export const uploadFileOnline = async (
         }
       }
     } catch (e) {
-      console.warn('Bytebin online upload fallback note:', e);
+      console.warn('Bytebin online upload note:', e);
     }
+  }
+
+  // Strategy 3: Permanent cloud storage (Catbox permanent, up to 200MB, full CORS, never expires)
+  try {
+    const fd = new FormData();
+    fd.append('reqtype', 'fileupload');
+    fd.append('fileToUpload', file, safeName);
+
+    const res = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      body: fd
+    });
+    if (res.ok) {
+      const onlineUrl = (await res.text()).trim();
+      if (onlineUrl && onlineUrl.startsWith('http')) {
+        return { url: onlineUrl, online: true };
+      }
+    }
+  } catch (e) {
+    console.warn('Catbox permanent upload note:', e);
   }
 
   // Strategy 4: Local Data URL fallback (stored safely in browser IndexedDB)
@@ -1127,30 +1126,101 @@ const DEFAULT_STAFF: StaffMember[] = [
     id: 'staff_1',
     name: 'Sarah Jenkins',
     email: 'sarah.jenkins@lawchambers.co.uk',
+    username: 'sarah',
+    password: 'password123',
     role: 'Partner',
     phone: '+44 20 7946 0912',
     avatarColor: '#1a73e8',
+    assignedClientIds: [], // Empty array indicates all cases assigned
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: true,
+      canDelete: true
+    },
     createdAt: new Date().toISOString()
   },
   {
     id: 'staff_2',
     name: 'David O\'Connor',
     email: 'david.oc@lawchambers.co.uk',
+    username: 'david',
+    password: 'password123',
     role: 'Senior Solicitor',
     phone: '+44 20 7946 0915',
     avatarColor: '#137333',
+    assignedClientIds: [],
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: true,
+      canDelete: false
+    },
     createdAt: new Date().toISOString()
   },
   {
     id: 'staff_3',
     name: 'Amina Patel',
     email: 'amina.patel@lawchambers.co.uk',
+    username: 'amina',
+    password: 'password123',
     role: 'Paralegal',
     phone: '+44 20 7946 0920',
     avatarColor: '#9334e6',
+    assignedClientIds: [],
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: false,
+      canDelete: false
+    },
     createdAt: new Date().toISOString()
   }
 ];
+
+export const syncStaffToSupabase = async (staffList: StaffMember[], solicitorId?: string) => {
+  if (!supabase) return;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id || '4da299cb-ab44-42e5-981b-36de3e4a2555';
+
+    await supabase.from('shared_links').upsert({
+      id: 'staff_directory_main',
+      title: 'Firm Staff Directory',
+      share_type: 'viewer',
+      scope: 'collection',
+      target_ids: [],
+      passcode: '0000',
+      solicitor_id: isUUID(resolvedSolicitorId) ? resolvedSolicitorId : '4da299cb-ab44-42e5-981b-36de3e4a2555',
+      payload: { staff: staffList }
+    }, { onConflict: 'id' });
+  } catch (err) {
+    console.warn('Supabase staff directory sync note:', err);
+  }
+};
+
+export const fetchStaffFromSupabase = async (): Promise<StaffMember[] | null> => {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('shared_links')
+      .select('payload')
+      .eq('id', 'staff_directory_main')
+      .maybeSingle();
+
+    if (!error && data?.payload) {
+      const p = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+      if (Array.isArray(p?.staff) && p.staff.length > 0) {
+        localStorage.setItem(STAFF_KEY, JSON.stringify(p.staff));
+        return p.staff;
+      }
+    }
+    return null;
+  } catch (err) {
+    console.warn('Supabase staff directory fetch note:', err);
+    return null;
+  }
+};
 
 export const getStaff = (): StaffMember[] => {
   try {
@@ -1160,13 +1230,28 @@ export const getStaff = (): StaffMember[] => {
       return DEFAULT_STAFF;
     }
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_STAFF;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      // Ensure existing items have credentials & permissions
+      return parsed.map((m: any, idx: number) => ({
+        ...m,
+        username: m.username || m.name.toLowerCase().replace(/[^a-z0-9]/g, '') || `staff${idx + 1}`,
+        password: m.password || 'password123',
+        assignedClientIds: Array.isArray(m.assignedClientIds) ? m.assignedClientIds : [],
+        permissions: m.permissions || {
+          canView: true,
+          canUpload: true,
+          canEdit: true,
+          canDelete: m.role === 'Partner'
+        }
+      }));
+    }
+    return DEFAULT_STAFF;
   } catch {
     return DEFAULT_STAFF;
   }
 };
 
-export const saveStaffMember = (member: StaffMember) => {
+export const saveStaffMember = (member: StaffMember, solicitorId?: string) => {
   const staff = getStaff();
   const idx = staff.findIndex(s => s.id === member.id);
   if (idx >= 0) {
@@ -1175,11 +1260,13 @@ export const saveStaffMember = (member: StaffMember) => {
     staff.push(member);
   }
   localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
+  syncStaffToSupabase(staff, solicitorId).catch(() => {});
 };
 
-export const deleteStaffMember = (id: string) => {
+export const deleteStaffMember = (id: string, solicitorId?: string) => {
   const staff = getStaff().filter(s => s.id !== id);
   localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
+  syncStaffToSupabase(staff, solicitorId).catch(() => {});
 };
 
 

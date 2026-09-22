@@ -142,7 +142,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     }
   };
 
-  // Prepare a proper application/pdf Blob URL (Required by Chromium/Safari to prevent blank white iframe)
+  // Prepare a proper application/pdf Blob URL (Required by Chromium/Safari to prevent blank white iframe or connection refused)
   useEffect(() => {
     let active = true;
     let createdUrl: string | null = null;
@@ -162,6 +162,23 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           } else {
             if (active) setBlobUrl(url);
           }
+        } else if (url.startsWith('http')) {
+          // Fetch remote bytes and convert to same-origin Blob URL to eliminate 'refused to connect' CSP/iframe errors
+          try {
+            const res = await fetch(url);
+            if (res.ok) {
+              const buf = await res.arrayBuffer();
+              if (active) {
+                const blob = new Blob([buf], { type: 'application/pdf' });
+                createdUrl = URL.createObjectURL(blob);
+                setBlobUrl(createdUrl);
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn('Could not pre-convert remote PDF to blob URL:', e);
+          }
+          if (active) setBlobUrl(url);
         } else {
           if (active) setBlobUrl(url);
         }
@@ -200,10 +217,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             source = { data: bytes };
           }
         } else if (url.startsWith('http')) {
-          // Pre-fetch binary with 2.5s timeout for 10x faster parsing
+          // Pre-fetch binary with 15s timeout for fast parsing without prematurely dropping large files
           try {
             const fetchCtrl = new AbortController();
-            const tid = setTimeout(() => fetchCtrl.abort(), 2500);
+            const tid = setTimeout(() => fetchCtrl.abort(), 15000);
             const res = await fetch(url, { signal: fetchCtrl.signal });
             clearTimeout(tid);
             if (res.ok) {
@@ -211,18 +228,14 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               source = { data: new Uint8Array(buf) };
             }
           } catch (e) {
-            console.warn('PDF fast fetch note:', e);
-            if (!isCancelled) {
-              setViewMode('native');
-              setLoading(false);
-              return;
-            }
+            console.warn('PDF fast fetch note (will let pdfjs try url):', e);
+            source = url;
           }
         }
 
         const loadingTask = pdfjsLib.getDocument(source);
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('PDF.js render timeout')), 2500)
+          setTimeout(() => reject(new Error('PDF.js render timeout')), 20000)
         );
         const doc: any = await Promise.race([loadingTask.promise, timeoutPromise]);
 

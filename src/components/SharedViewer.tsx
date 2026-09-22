@@ -120,11 +120,22 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
     if (shareRecord.scope === 'collection') {
       const targetTabId = shareRecord.targetIds[0];
       filtered = documents.filter((d) => d.collectionId === targetTabId);
+    } else if (shareRecord.scope === 'folder') {
+      const targetFolderId = shareRecord.targetIds[0];
+      const folderIds = new Set<string>([targetFolderId]);
+      const addChildren = (pId: string) => {
+        folders.filter(f => f.parentId === pId).forEach(c => {
+          folderIds.add(c.id);
+          addChildren(c.id);
+        });
+      };
+      addChildren(targetFolderId);
+      filtered = documents.filter((d) => d.folderId && folderIds.has(d.folderId));
     } else {
       filtered = documents.filter((d) => shareRecord.targetIds.includes(d.id));
     }
     return filtered.length > 0 ? filtered : documents;
-  }, [shareRecord, documents]);
+  }, [shareRecord, documents, folders]);
 
   const toggleFolderCollapse = (folderId: string) => {
     setCollapsedFolders((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
@@ -149,16 +160,32 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
       if (match.length > 0) return match;
       return folders;
     }
+    if (shareRecord && shareRecord.scope === 'folder') {
+      const targetFolderId = shareRecord.targetIds[0];
+      const folderIds = new Set<string>([targetFolderId]);
+      const addChildren = (pId: string) => {
+        folders.filter(f => f.parentId === pId).forEach(c => {
+          folderIds.add(c.id);
+          addChildren(c.id);
+        });
+      };
+      addChildren(targetFolderId);
+      return folders.filter((f) => folderIds.has(f.id));
+    }
     const activeFolderIds = new Set(allowedDocuments.map((d) => d.folderId).filter(Boolean));
     const match = folders.filter((f) => activeFolderIds.has(f.id));
     if (match.length > 0) return match;
     return folders;
   }, [folders, shareRecord, allowedDocuments]);
 
-  // Root folders (top level without parent)
+  // Root folders (top level without parent, or target shared folder)
   const rootFolders = useMemo(() => {
+    if (shareRecord && shareRecord.scope === 'folder') {
+      const targetFolderId = shareRecord.targetIds[0];
+      return relevantFolders.filter((f) => f.id === targetFolderId);
+    }
     return relevantFolders.filter((f) => !f.parentId);
-  }, [relevantFolders]);
+  }, [relevantFolders, shareRecord]);
 
   const getDocIcon = (fileType: string) => {
     switch (fileType) {

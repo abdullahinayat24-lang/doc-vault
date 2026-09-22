@@ -99,14 +99,14 @@ export interface DocumentItem {
   pages?: DocumentPage[]; // Multi-page / multi-sided support (e.g. Front & Back)
 }
 
-export type ShareScope = 'single' | 'multiple' | 'collection';
+export type ShareScope = 'single' | 'multiple' | 'collection' | 'folder';
 
 export interface ShareRecord {
   id: string;
   title: string;
   shareType: ShareType; // 'viewer' or 'uploader'
   scope: ShareScope;
-  targetIds: string[]; // document IDs or collection ID
+  targetIds: string[]; // document IDs, collection ID, or folder ID
   passcode: string; // 4-digit PIN required to view
   allowClientUpload?: boolean;
   createdAt: string;
@@ -136,14 +136,26 @@ export interface SolicitorProfile {
 
 export type StaffRole = 'Partner' | 'Senior Solicitor' | 'Solicitor' | 'Paralegal' | 'Case Worker' | 'Legal Secretary';
 
+export interface StaffPermissions {
+  canView: boolean;
+  canUpload: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+}
+
 export interface StaffMember {
   id: string;
   name: string;
   email: string;
+  username: string;
+  password?: string;
   role: StaffRole;
   phone?: string;
   avatarColor?: string;
+  assignedClientIds: string[];
+  permissions: StaffPermissions;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export type UserProfile = SolicitorProfile;
