@@ -127,6 +127,10 @@ export interface SolicitorProfile {
   companyLogo?: string;
   phone?: string;
   address?: string;
+  sraNumber?: string;
+  website?: string;
+  signatureImage?: string;
+  stampImage?: string;
   pinCode: string; // 4-digit PIN for session lock
   isDemoMode: boolean;
   role?: 'admin' | 'staff';

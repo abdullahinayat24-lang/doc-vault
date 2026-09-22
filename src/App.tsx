@@ -48,6 +48,7 @@ import {
   fetchFoldersFromSupabaseMaster,
   deleteDocumentFromSupabase,
   deleteBatchDocumentsFromSupabase,
+  getTombstones,
   exportMergedPdf,
   exportAsJpgZip,
   syncShareToSupabase,
@@ -609,9 +610,13 @@ export function App() {
       // 4. Hydrate documents from Supabase cloud
       fetchUserDocumentsFromSupabase(user.id).then((cloudDocs) => {
         if (cloudDocs && cloudDocs.length > 0) {
+          const tombstones = getTombstones();
+          const cleanCloudDocs = cloudDocs.filter((cd) => !tombstones.has(cd.id));
+
           setDocuments((prev) => {
-            const map = new Map(prev.map((d) => [d.id, d]));
-            cloudDocs.forEach((cd) => {
+            const cleanPrev = prev.filter((d) => !tombstones.has(d.id));
+            const map = new Map(cleanPrev.map((d) => [d.id, d]));
+            cleanCloudDocs.forEach((cd) => {
               const existing = map.get(cd.id);
               if (existing) {
                 map.set(cd.id, {
@@ -624,11 +629,6 @@ export function App() {
               }
             });
             const merged = deduplicateDocuments(Array.from(map.values()));
-            // Sync any local docs missing in cloud
-            const missingInCloud = prev.filter((d) => !cloudDocs.some((cd) => cd.id === d.id));
-            if (missingInCloud.length > 0) {
-              syncDocumentsToSupabase(missingInCloud, user.id, tabs, clients);
-            }
             return merged;
           });
         } else {

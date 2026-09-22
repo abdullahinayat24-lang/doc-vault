@@ -136,10 +136,32 @@ export const CollectionTabs: React.FC<CollectionTabsProps> = ({
                 {getTabIcon(tab)}
               </span>
 
-              <div className="text-left max-w-[160px] sm:max-w-[200px]">
+              <div 
+                className="text-left max-w-[170px] sm:max-w-[210px] flex items-center gap-1.5"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setEditingTabId(tab.id);
+                  setEditingName(tab.name);
+                }}
+                title="Double-click to rename this case tab"
+              >
                 <span className="truncate block leading-tight font-medium">
                   {tab.name}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(tab.id);
+                    setEditingName(tab.name);
+                  }}
+                  className={`p-0.5 rounded hover:bg-black/10 text-[#5f6368] hover:text-[#1a73e8] transition-opacity ${
+                    isActive ? 'opacity-80 hover:opacity-100' : 'opacity-0 group-hover:opacity-70 hover:opacity-100'
+                  }`}
+                  title="Rename tab"
+                >
+                  <Edit2 className="w-3 h-3" />
+                </button>
                 {tab.clientName && (
                   <span className="text-[10px] text-[#5f6368] font-normal truncate block">
                     {tab.clientName}

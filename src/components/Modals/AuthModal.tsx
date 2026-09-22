@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   X, 
   User, 
@@ -15,11 +15,14 @@ import {
   Check,
   Plus,
   Trash2,
-  Link
+  Link,
+  MapPin,
+  Globe,
+  Upload
 } from 'lucide-react';
 import { SolicitorProfile, InviteKeyRecord } from '../../types';
 import { updateSupabaseCredentials } from '../../lib/supabase';
-import { getInviteKeys, generateRandomInviteKey, deleteInviteKey } from '../../lib/storage';
+import { getInviteKeys, generateRandomInviteKey, deleteInviteKey, uploadFileOnline, ensureUserProfileInSupabase } from '../../lib/storage';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -39,6 +42,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [companyName, setCompanyName] = useState(currentUser.companyName || '');
   const [companyLogo, setCompanyLogo] = useState(currentUser.companyLogo || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
+  const [address, setAddress] = useState(currentUser.address || '');
+  const [sraNumber, setSraNumber] = useState(currentUser.sraNumber || '');
+  const [website, setWebsite] = useState(currentUser.website || '');
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
   const [regKey, setRegKey] = useState(
     localStorage.getItem('docvault_registration_key') || 'LEGAL-VAULT-2026'
   );
@@ -57,6 +66,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   );
   const [configSuccess, setConfigSuccess] = useState(false);
 
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingLogo(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      setCompanyLogo(dataUrl);
+      setIsUploadingLogo(false);
+      try {
+        const { url } = await uploadFileOnline(file, currentUser.id);
+        if (url) setCompanyLogo(url);
+      } catch (err) {
+        console.warn('Logo upload note:', err);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   if (!isOpen) return null;
 
   const handleProfileSubmit = (e: React.FormEvent) => {
@@ -67,9 +95,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       displayName: displayName.trim() || 'Solicitor',
       companyName: companyName.trim() || 'Legal Chambers',
       companyLogo: companyLogo.trim() || undefined,
-      phone: phone.trim() || undefined
+      phone: phone.trim() || undefined,
+      address: address.trim() || undefined,
+      sraNumber: sraNumber.trim() || undefined,
+      website: website.trim() || undefined
     };
     onSaveUser(updatedUser);
+    ensureUserProfileInSupabase(updatedUser).catch(() => {});
     onClose();
   };
 
@@ -205,44 +237,128 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
+              {/* Company Logo with Direct File Upload */}
               <div>
                 <label className="block text-xs font-semibold text-[#202124] mb-1">
-                  Company Logo URL
+                  Company / Firm Logo
+                </label>
+                <div className="flex items-center gap-3">
+                  {companyLogo ? (
+                    <div className="relative group w-16 h-16 rounded-xl border border-[#dadce0] bg-white p-1 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      <img src={companyLogo} alt="Firm Logo" className="max-w-full max-h-full object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setCompanyLogo('')}
+                        className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl"
+                        title="Remove logo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-[#dadce0] bg-[#f8fafd] flex flex-col items-center justify-center text-[#5f6368] flex-shrink-0">
+                      <ImageIcon className="w-5 h-5 text-[#80868b]" />
+                      <span className="text-[9px] mt-0.5">No Logo</span>
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1.5">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      onChange={handleLogoSelect}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      disabled={isUploadingLogo}
+                      onClick={() => logoInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-[#e8f0fe] hover:bg-[#d2e3fc] text-[#1a73e8] font-semibold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isUploadingLogo ? 'Processing...' : companyLogo ? 'Change Logo Image' : 'Upload Logo Image'}</span>
+                    </button>
+                    <input
+                      type="url"
+                      value={companyLogo}
+                      onChange={(e) => setCompanyLogo(e.target.value)}
+                      placeholder="Or paste image URL (e.g. https://...)"
+                      className="w-full px-2.5 py-1 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-lg text-[11px] outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1">
+                  Chambers / Office Address (Used for Official Letterheads)
+                </label>
+                <div className="relative">
+                  <MapPin className="w-4 h-4 text-[#5f6368] absolute left-3 top-2.5" />
+                  <textarea
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. 10 Chancery Lane, High Court District, London WC2A 1AA, United Kingdom"
+                    className="w-full pl-9 pr-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none resize-none leading-relaxed"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-semibold text-[#202124] mb-1">
+                    SRA / Bar / Reg. No.
+                  </label>
+                  <div className="relative flex items-center">
+                    <ShieldCheck className="w-4 h-4 text-[#5f6368] absolute left-3" />
+                    <input
+                      type="text"
+                      value={sraNumber}
+                      onChange={(e) => setSraNumber(e.target.value)}
+                      placeholder="e.g. SRA ID: 628192"
+                      className="w-full pl-9 pr-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#202124] mb-1">
+                    Firm Website (Optional)
+                  </label>
+                  <div className="relative flex items-center">
+                    <Globe className="w-4 h-4 text-[#5f6368] absolute left-3" />
+                    <input
+                      type="text"
+                      value={website}
+                      onChange={(e) => setWebsite(e.target.value)}
+                      placeholder="www.ranova.co.uk"
+                      className="w-full pl-9 pr-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#202124] mb-1">
+                  Principal Solicitor / Managing Partner Name
                 </label>
                 <div className="relative flex items-center">
-                  <ImageIcon className="w-4 h-4 text-[#5f6368] absolute left-3" />
+                  <User className="w-4 h-4 text-[#5f6368] absolute left-3" />
                   <input
-                    type="url"
-                    value={companyLogo}
-                    onChange={(e) => setCompanyLogo(e.target.value)}
-                    placeholder="https://example.com/logo.png"
+                    type="text"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="e.g. David Sterling, Esq."
                     className="w-full pl-9 pr-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
                   />
                 </div>
-                {companyLogo && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <img src={companyLogo} alt="Logo preview" className="w-8 h-8 rounded border object-cover" />
-                    <span className="text-[11px] text-[#5f6368]">Logo Preview</span>
-                  </div>
-                )}
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-[#202124] mb-1">
-                  Solicitor Name
-                </label>
-                <input
-                  type="text"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="e.g. David Sterling, Esq."
-                  className="w-full px-3 py-2 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-xs outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[#202124] mb-1">
-                  Email Address
+                  Firm Email Address
                 </label>
                 <div className="relative flex items-center">
                   <Mail className="w-4 h-4 text-[#5f6368] absolute left-3" />
@@ -258,7 +374,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-[#202124] mb-1">
-                  Contact Phone (Optional)
+                  Contact Phone Number
                 </label>
                 <div className="relative flex items-center">
                   <Phone className="w-4 h-4 text-[#5f6368] absolute left-3" />

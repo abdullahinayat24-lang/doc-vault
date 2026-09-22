@@ -657,11 +657,89 @@ export const syncDocumentsToSupabase = async (
   }
 };
 
+const TOMBSTONES_KEY = 'docvault_deleted_tombstones';
+
+export const getTombstones = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(TOMBSTONES_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+};
+
+export const recordTombstone = (docId: string) => {
+  try {
+    const set = getTombstones();
+    set.add(docId);
+    set.add(toDeterministicUUID(docId));
+    const arr = Array.from(set).slice(-1000);
+    localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(arr));
+    syncTombstonesToSupabase(arr).catch(() => {});
+  } catch {}
+};
+
+export const recordBatchTombstones = (docIds: string[]) => {
+  try {
+    const set = getTombstones();
+    docIds.forEach((id) => {
+      set.add(id);
+      set.add(toDeterministicUUID(id));
+    });
+    const arr = Array.from(set).slice(-1000);
+    localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(arr));
+    syncTombstonesToSupabase(arr).catch(() => {});
+  } catch {}
+};
+
+export const syncTombstonesToSupabase = async (tombstones: string[]) => {
+  if (!supabase || tombstones.length === 0) return;
+  try {
+    await supabase.from('shared_links').upsert({
+      id: 'firm_tombstones_master',
+      title: 'Firm Tombstones Master',
+      share_type: 'viewer',
+      scope: 'collection',
+      target_ids: [],
+      passcode: '0000',
+      payload: { tombstones }
+    }, { onConflict: 'id' });
+  } catch {}
+};
+
+export const fetchTombstonesFromSupabase = async (): Promise<string[]> => {
+  if (!supabase) return [];
+  try {
+    const { data } = await supabase
+      .from('shared_links')
+      .select('payload')
+      .eq('id', 'firm_tombstones_master')
+      .maybeSingle();
+
+    if (data?.payload) {
+      const p = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+      if (Array.isArray(p?.tombstones)) {
+        const local = getTombstones();
+        p.tombstones.forEach((t: string) => local.add(t));
+        localStorage.setItem(TOMBSTONES_KEY, JSON.stringify(Array.from(local).slice(-1000)));
+        return Array.from(local);
+      }
+    }
+    return Array.from(getTombstones());
+  } catch {
+    return Array.from(getTombstones());
+  }
+};
+
 export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<DocumentItem[] | null> => {
   if (!supabase) return null;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedId = userId || authUser?.id;
+
+    // First ensure tombstones are hydrated so deleted files never resurrect
+    await fetchTombstonesFromSupabase().catch(() => {});
+    const tombstones = getTombstones();
 
     let query = supabase.from('documents').select('*');
     if (isUUID(resolvedId)) {
@@ -671,7 +749,10 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
     const { data, error } = await query;
     if (error || !data || data.length === 0) return null;
 
-    return data.map((d: any): DocumentItem => {
+    // Filter out deleted/tombstone documents
+    const activeData = data.filter((d: any) => !tombstones.has(d.id));
+
+    return activeData.map((d: any): DocumentItem => {
       let folderId: string | undefined = d.folder_id || undefined;
       let cleanNotes = d.notes || '';
       const match = cleanNotes.match(/\[folderId:([^\]]+)\]/);
@@ -706,12 +787,19 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
 export const deleteDocumentFromSupabase = async (docId: string, solicitorId?: string): Promise<boolean> => {
   if (!supabase || !docId) return false;
   try {
-    const safeDocId = toDeterministicUUID(docId);
-    let query = supabase.from('documents').delete().or(`id.eq.${docId},id.eq.${safeDocId}`);
-    const { error } = await query;
-    if (error) {
-      console.warn('Supabase deleteDocument note:', error.message);
-      return false;
+    recordTombstone(docId);
+    const validIds = new Set<string>();
+    if (isUUID(docId)) validIds.add(docId);
+    const det = toDeterministicUUID(docId);
+    if (isUUID(det)) validIds.add(det);
+
+    const idList = Array.from(validIds);
+    if (idList.length > 0) {
+      const { error } = await supabase.from('documents').delete().in('id', idList);
+      if (error) {
+        console.warn('Supabase deleteDocument note:', error.message);
+        return false;
+      }
     }
     return true;
   } catch (err) {
@@ -723,16 +811,21 @@ export const deleteDocumentFromSupabase = async (docId: string, solicitorId?: st
 export const deleteBatchDocumentsFromSupabase = async (docIds: string[], solicitorId?: string): Promise<boolean> => {
   if (!supabase || !docIds || docIds.length === 0) return false;
   try {
-    const allIds = new Set<string>();
-    docIds.forEach(id => {
-      allIds.add(id);
-      allIds.add(toDeterministicUUID(id));
+    recordBatchTombstones(docIds);
+    const validIds = new Set<string>();
+    docIds.forEach((id) => {
+      if (isUUID(id)) validIds.add(id);
+      const det = toDeterministicUUID(id);
+      if (isUUID(det)) validIds.add(det);
     });
-    const idArray = Array.from(allIds);
-    const { error } = await supabase.from('documents').delete().in('id', idArray);
-    if (error) {
-      console.warn('Supabase deleteBatchDocuments note:', error.message);
-      return false;
+
+    const idList = Array.from(validIds);
+    if (idList.length > 0) {
+      const { error } = await supabase.from('documents').delete().in('id', idList);
+      if (error) {
+        console.warn('Supabase deleteBatchDocuments note:', error.message);
+        return false;
+      }
     }
     return true;
   } catch (err) {

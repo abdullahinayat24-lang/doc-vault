@@ -25,7 +25,12 @@ import {
   Sparkles,
   ChevronDown,
   FolderPlus,
-  Users
+  Users,
+  PenTool,
+  Upload,
+  Trash2,
+  Globe,
+  ShieldCheck
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { SolicitorProfile, ClientRecord, CollectionTab, DocumentFolder, DocumentItem } from '../../types';
@@ -46,6 +51,7 @@ interface LetterheadModalProps {
 
 type FontChoice = 'Times New Roman' | 'Georgia' | 'Garamond' | 'Arial' | 'Segoe UI';
 type HeaderLayout = 'centered' | 'split' | 'modern';
+type SignatureMode = 'blank' | 'upload' | 'digital';
 
 const LETTERHEAD_TEMPLATES = [
   {
@@ -131,6 +137,39 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
 
+  // Signature and Stamp state
+  const [signatureMode, setSignatureMode] = useState<SignatureMode>('blank');
+  const [signatureImage, setSignatureImage] = useState<string>(() => solicitor.signatureImage || '');
+  const [stampImage, setStampImage] = useState<string>(() => solicitor.stampImage || '');
+  const sigInputRef = useRef<HTMLInputElement>(null);
+  const stampInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setSignatureImage(reader.result);
+        setSignatureMode('upload');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleStampUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setStampImage(reader.result);
+        setSignatureMode('upload');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -148,6 +187,8 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
   const firmEmail = solicitor.email || 'solicitor@lawchambers.co.uk';
   const firmPhone = solicitor.phone || '+44 20 7946 0988';
   const firmAddress = solicitor.address || 'Chambers, 12 Fleet Street, London EC4Y 1AA';
+  const firmSra = solicitor.sraNumber || '';
+  const firmWebsite = solicitor.website || '';
 
   const handleApplyTemplate = (tmplId: string) => {
     const found = LETTERHEAD_TEMPLATES.find(t => t.id === tmplId);
@@ -233,7 +274,7 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
     doc.setFont(fontFamily === 'Times New Roman' ? 'times' : 'helvetica', 'normal');
     doc.setTextColor(95, 99, 104);
     doc.text(`Principal: ${solicitorName} • Tel: ${firmPhone} • Email: ${firmEmail}`, 20, 28);
-    doc.text(firmAddress, 20, 33);
+    doc.text(firmAddress + (firmSra ? ` • SRA Reg: ${firmSra}` : ''), 20, 33);
 
     // Rule
     doc.setDrawColor(26, 115, 232);
@@ -264,6 +305,58 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
     doc.setFontSize(fontSize);
     const bodyLines = doc.splitTextToSize(content, 170);
     doc.text(bodyLines, 20, y);
+    y += bodyLines.length * (fontSize * 0.45) + 12;
+
+    if (y > 235) {
+      doc.addPage();
+      y = 25;
+    }
+
+    doc.setFontSize(10);
+    doc.text('Yours faithfully,', 20, y);
+    y += 6;
+
+    if (signatureMode === 'blank') {
+      doc.setDrawColor(120, 120, 120);
+      doc.setLineWidth(0.4);
+      doc.line(20, y + 14, 90, y + 14);
+      doc.setFontSize(8);
+      doc.setTextColor(120, 120, 120);
+      doc.text('(Sign & Stamp with Pen)', 20, y + 18);
+      y += 26;
+    } else if (signatureMode === 'upload') {
+      if (signatureImage) {
+        try {
+          doc.addImage(signatureImage, 'PNG', 20, y, 45, 18);
+        } catch {
+          doc.text('[Signature Image Attached]', 20, y + 8);
+        }
+      }
+      if (stampImage) {
+        try {
+          doc.addImage(stampImage, 'PNG', 75, y - 2, 22, 22);
+        } catch {}
+      }
+      y += 24;
+    } else {
+      doc.setFont(fontFamily === 'Times New Roman' ? 'times' : 'helvetica', 'italic');
+      doc.setFontSize(14);
+      doc.setTextColor(26, 115, 232);
+      doc.text(solicitorName, 20, y + 6);
+      y += 14;
+    }
+
+    doc.setFont(fontFamily === 'Times New Roman' ? 'times' : 'helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(32, 33, 36);
+    doc.text(solicitorName, 20, y);
+    doc.setFont(fontFamily === 'Times New Roman' ? 'times' : 'helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(95, 99, 104);
+    doc.text(firmName, 20, y + 5);
+    if (firmSra) {
+      doc.text(`SRA Reg: ${firmSra}`, 20, y + 9);
+    }
 
     const cleanFilename = letterTitle.replace(/[^a-zA-Z0-9_-]/g, '_');
     doc.save(`${cleanFilename}.pdf`);
@@ -273,6 +366,32 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     const content = editorRef.current?.innerHTML || bodyHtml;
+
+    let sigHtml = '';
+    if (signatureMode === 'blank') {
+      sigHtml = `
+        <div style="margin: 45px 0 20px 0;">
+          <div style="border-bottom: 2px dashed #444; width: 260px; padding-bottom: 4px; font-size: 9pt; color: #555; font-family: monospace;">
+            (Sign &amp; Stamp with Pen)
+          </div>
+        </div>
+      `;
+    } else if (signatureMode === 'upload') {
+      sigHtml = `
+        <div style="margin: 15px 0 15px 0; display: flex; align-items: center; gap: 24px;">
+          ${signatureImage ? `<img src="${signatureImage}" style="height: 60px; max-width: 220px; object-fit: contain;" />` : `<div style="border-bottom: 1.5px dashed #666; width: 180px; height: 35px; line-height: 45px; font-size: 8pt; color: #888;">(Signature)</div>`}
+          ${stampImage ? `<img src="${stampImage}" style="height: 75px; max-width: 140px; object-fit: contain;" />` : ''}
+        </div>
+      `;
+    } else {
+      sigHtml = `
+        <div style="margin: 20px 0;">
+          <span style="font-family: 'Brush Script MT', cursive, sans-serif; font-size: 26pt; color: #1a73e8;">
+            ${solicitorName}
+          </span>
+        </div>
+      `;
+    }
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -296,14 +415,14 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
           .recipient { margin-bottom: 16px; font-size: 10pt; white-space: pre-line; }
           .subject { font-weight: bold; font-size: 12pt; text-decoration: underline; margin-bottom: 18px; }
           .body { font-size: ${fontSize}pt; }
-          .signature { margin-top: 40px; font-size: 10pt; }
+          .signature { margin-top: 36px; font-size: 10pt; }
         </style>
       </head>
       <body>
         <div class="header">
           <div class="firm-name">${firmName}</div>
-          <div class="firm-meta">Principal Solicitor: ${solicitorName} • Tel: ${firmPhone} • Email: ${firmEmail}</div>
-          <div class="firm-meta">${firmAddress}</div>
+          <div class="firm-meta">Principal Solicitor: ${solicitorName} • Tel: ${firmPhone} • Email: ${firmEmail}${firmWebsite ? ` • Web: ${firmWebsite}` : ''}</div>
+          <div class="firm-meta">${firmAddress}${firmSra ? ` • Regulated: ${firmSra}` : ''}</div>
         </div>
         <div class="refs">
           <div><strong>Our Ref:</strong> ${ourRef} ${yourRef ? `&bull; <strong>Your Ref:</strong> ${yourRef}` : ''}</div>
@@ -314,8 +433,8 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
         <div class="body">${content}</div>
         <div class="signature">
           <p>Yours faithfully,</p>
-          <br/><br/>
-          <p><strong>${solicitorName}</strong><br/>${firmName}</p>
+          ${sigHtml}
+          <p><strong>${solicitorName}</strong><br/>${firmName}${firmSra ? `<br/><span style="font-size: 8pt; color: #666;">SRA Reg: ${firmSra}</span>` : ''}</p>
         </div>
       </body>
       </html>
@@ -479,6 +598,73 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
                 Classic Centered
               </button>
             </div>
+
+            {/* Signature Format Selector */}
+            <div className="flex items-center gap-1 bg-[#f8fafd] border border-[#dadce0] rounded-xl p-0.5">
+              <button
+                type="button"
+                onClick={() => setSignatureMode('blank')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-colors ${signatureMode === 'blank' ? 'bg-white shadow-xs text-[#1a73e8]' : 'text-[#5f6368]'}`}
+                title="Leave signature space empty for physical hand signing & rubber stamp"
+              >
+                ✍️ Blank (Pen Sign)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignatureMode('upload')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-colors ${signatureMode === 'upload' ? 'bg-white shadow-xs text-[#1a73e8]' : 'text-[#5f6368]'}`}
+                title="Upload custom signature and firm stamp images"
+              >
+                🖋️ Upload Stamp / Sig
+              </button>
+              <button
+                type="button"
+                onClick={() => setSignatureMode('digital')}
+                className={`px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition-colors ${signatureMode === 'digital' ? 'bg-white shadow-xs text-[#1a73e8]' : 'text-[#5f6368]'}`}
+                title="Digital cursive script font"
+              >
+                ✨ Digital Script
+              </button>
+            </div>
+
+            {/* Hidden file inputs & Upload Action Buttons */}
+            <input
+              ref={sigInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleSignatureUpload}
+            />
+            <input
+              ref={stampInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleStampUpload}
+            />
+
+            {signatureMode === 'upload' && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => sigInputRef.current?.click()}
+                  className="px-2 py-1 bg-[#e8f0fe] hover:bg-[#d2e3fc] text-[#1a73e8] rounded-xl text-[11px] font-semibold flex items-center gap-1 transition-colors shadow-2xs"
+                  title="Upload PNG / JPG signature"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>{signatureImage ? 'Change Signature' : 'Upload Signature'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => stampInputRef.current?.click()}
+                  className="px-2 py-1 bg-[#fce8e6] hover:bg-[#fad2cf] text-[#c5221f] rounded-xl text-[11px] font-semibold flex items-center gap-1 transition-colors shadow-2xs"
+                  title="Upload official rubber seal / stamp"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>{stampImage ? 'Change Stamp' : 'Upload Firm Stamp'}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Copy to Another Client feature */}
@@ -584,7 +770,7 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
                         Principal Solicitor: {solicitorName}
                       </p>
                       <p className="text-[10px] text-[#70757a] mt-0.5">
-                        Authorised &amp; Regulated Solicitors &bull; High Court Practice
+                        Authorised &amp; Regulated Solicitors {firmSra ? `• SRA ID: ${firmSra}` : '• High Court Practice'}
                       </p>
                     </div>
                   </div>
@@ -602,6 +788,12 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
                       <span>{firmAddress}</span>
                       <MapPin className="w-3 h-3 text-[#1a73e8]" />
                     </p>
+                    {firmWebsite && (
+                      <p className="flex items-center justify-end gap-1.5">
+                        <span>{firmWebsite}</span>
+                        <Globe className="w-3 h-3 text-[#1a73e8]" />
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -610,10 +802,10 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
                     {firmName}
                   </h1>
                   <p className="text-xs text-[#202124] font-semibold">
-                    Principal Solicitor: {solicitorName} &bull; Practice Chambers
+                    Principal Solicitor: {solicitorName} &bull; Practice Chambers {firmSra ? `&bull; SRA ID: ${firmSra}` : ''}
                   </p>
                   <p className="text-[11px] text-[#5f6368] mt-0.5">
-                    {firmAddress} &bull; Tel: {firmPhone} &bull; Email: {firmEmail}
+                    {firmAddress} &bull; Tel: {firmPhone} &bull; Email: {firmEmail} {firmWebsite ? `&bull; ${firmWebsite}` : ''}
                   </p>
                 </div>
               )}
@@ -690,14 +882,77 @@ export const LetterheadModal: React.FC<LetterheadModalProps> = ({
 
             {/* Signature Block */}
             <div className="mt-12 pt-6 border-t border-[#f1f3f4] text-xs text-[#202124] leading-relaxed">
-              <p>Yours faithfully,</p>
-              <div className="my-6">
-                <span className="font-['Brush_Script_MT',cursive] text-2xl text-[#1a73e8]">
-                  {solicitorName}
-                </span>
-              </div>
+              <p className="font-semibold text-sm">Yours faithfully,</p>
+
+              {signatureMode === 'blank' && (
+                <div className="my-8">
+                  <div className="border-b-2 border-dashed border-[#5f6368] w-64 pb-1 text-[11px] text-[#5f6368] font-mono">
+                    (Sign &amp; Stamp with Pen)
+                  </div>
+                </div>
+              )}
+
+              {signatureMode === 'upload' && (
+                <div className="my-4 flex items-center gap-6">
+                  {signatureImage ? (
+                    <div className="relative group border border-dashed border-gray-300 hover:border-[#1a73e8] rounded-xl p-1.5 bg-white">
+                      <img src={signatureImage} alt="Signature" className="h-16 max-w-[200px] object-contain" />
+                      <button
+                        type="button"
+                        onClick={() => setSignatureImage('')}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+                        title="Remove signature"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => sigInputRef.current?.click()}
+                      className="border-2 border-dashed border-[#dadce0] hover:border-[#1a73e8] rounded-xl px-4 py-3 text-xs text-[#5f6368] hover:text-[#1a73e8] flex items-center gap-1.5 transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Upload Signature</span>
+                    </button>
+                  )}
+
+                  {stampImage ? (
+                    <div className="relative group border border-dashed border-gray-300 hover:border-[#c5221f] rounded-xl p-1.5 bg-white">
+                      <img src={stampImage} alt="Chambers Stamp" className="h-20 max-w-[120px] object-contain opacity-90" />
+                      <button
+                        type="button"
+                        onClick={() => setStampImage('')}
+                        className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-xs"
+                        title="Remove stamp"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => stampInputRef.current?.click()}
+                      className="border-2 border-dashed border-[#dadce0] hover:border-[#c5221f] rounded-xl px-4 py-3 text-xs text-[#5f6368] hover:text-[#c5221f] flex items-center gap-1.5 transition-colors"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Upload Official Stamp</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {signatureMode === 'digital' && (
+                <div className="my-6">
+                  <span className="font-['Brush_Script_MT',cursive] text-2xl text-[#1a73e8]">
+                    {solicitorName}
+                  </span>
+                </div>
+              )}
+
               <p className="font-bold text-[#202124]">{solicitorName}</p>
               <p className="text-[#5f6368]">{firmName}</p>
+              {firmSra && <p className="text-[#70757a] text-[10px]">SRA Reg: {firmSra}</p>}
               <p className="text-[10px] text-[#70757a] mt-3 border-t border-[#dadce0] pt-2">
                 This official legal letter has been generated securely and sealed electronically via DocVault Legal Chambers System.
               </p>
