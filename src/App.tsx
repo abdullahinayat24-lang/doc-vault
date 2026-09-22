@@ -42,6 +42,9 @@ import {
   generateUUID,
   uploadFileOnline,
   syncSingleDocumentToSupabase,
+  syncDocumentsToSupabase,
+  extractFoldersFromClients,
+  syncFoldersToSupabase,
   migrateLocalDocumentsToCloud,
   initTrial,
   getTrialStatus,
@@ -66,7 +69,7 @@ import { PricingModal } from './components/Modals/PricingModal';
 import { AuthScreen } from './components/AuthScreen';
 import { ChangePinModal } from './components/Modals/ChangePinModal';
 import { DiscountKeysModal } from './components/Modals/DiscountKeysModal';
-import { ArrowLeft, ShieldAlert, Sparkles, KeyRound } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
 
 
 
@@ -202,6 +205,27 @@ export function App() {
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortOption, setSortOption] = useState<'manual' | 'date' | 'name'>('manual');
+  const [isWorkspaceDragging, setIsWorkspaceDragging] = useState<boolean>(false);
+
+  // Prevent browser default drop navigation
+  useEffect(() => {
+    const handleWindowDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+      }
+    };
+    const handleWindowDrop = (e: DragEvent) => {
+      if (e.dataTransfer?.types?.includes('Files')) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('dragover', handleWindowDragOver);
+    window.addEventListener('drop', handleWindowDrop);
+    return () => {
+      window.removeEventListener('dragover', handleWindowDragOver);
+      window.removeEventListener('drop', handleWindowDrop);
+    };
+  }, []);
 
   // Modals
   const [isLocked, setIsLocked] = useState<boolean>(false);
@@ -369,9 +393,30 @@ export function App() {
       // 1. Ensure user profile exists in Supabase so foreign key constraints succeed
       ensureUserProfileInSupabase(user).catch(() => {});
 
-      // 2. Hydrate clients from Supabase cloud
+      // 2. Hydrate clients and folders from Supabase cloud
       fetchClientsFromSupabase(user.id).then((cloudClients) => {
         if (cloudClients && cloudClients.length > 0) {
+          // Extract folders saved in cloudClients notes
+          const cloudFolders = extractFoldersFromClients(cloudClients);
+          if (cloudFolders.length > 0) {
+            setFolders((prev) => {
+              const map = new Map<string, DocumentFolder>();
+              cloudFolders.forEach((f) => map.set(f.id, f));
+              prev.forEach((f) => {
+                if (!map.has(f.id)) map.set(f.id, f);
+              });
+              return Array.from(map.values());
+            });
+          } else {
+            // Push existing local folders to cloud
+            setFolders((currentFolders) => {
+              if (currentFolders.length > 0) {
+                syncFoldersToSupabase(currentFolders, cloudClients[0]?.id || selectedClientId || undefined, user.id);
+              }
+              return currentFolders;
+            });
+          }
+
           setClients((prevLocal) => {
             const map = new Map<string, ClientRecord>();
             cloudClients.forEach((c) => map.set(c.id, c));
@@ -390,6 +435,12 @@ export function App() {
           setClients((currentClients) => {
             currentClients.forEach((c) => syncClientToSupabase(c, user.id));
             return currentClients;
+          });
+          setFolders((currentFolders) => {
+            if (currentFolders.length > 0 && clients.length > 0) {
+              syncFoldersToSupabase(currentFolders, clients[0].id, user.id);
+            }
+            return currentFolders;
           });
         }
       }).catch((err) => console.warn('Supabase initial clients load note:', err));
@@ -435,7 +486,21 @@ export function App() {
                 map.set(cd.id, cd);
               }
             });
-            return deduplicateDocuments(Array.from(map.values()));
+            const merged = deduplicateDocuments(Array.from(map.values()));
+            // Sync any local docs missing in cloud
+            const missingInCloud = prev.filter((d) => !cloudDocs.some((cd) => cd.id === d.id));
+            if (missingInCloud.length > 0) {
+              syncDocumentsToSupabase(missingInCloud, user.id, tabs, clients);
+            }
+            return merged;
+          });
+        } else {
+          // Cloud has 0 documents: push existing local documents to Supabase
+          setDocuments((currentDocs) => {
+            if (currentDocs.length > 0) {
+              syncDocumentsToSupabase(currentDocs, user.id, tabs, clients);
+            }
+            return currentDocs;
           });
         }
       }).catch((err) => console.warn('Supabase initial documents load note:', err));
@@ -457,8 +522,8 @@ export function App() {
   }, [documents, user?.id]);
 
   useEffect(() => {
-    saveFolders(folders);
-  }, [folders]);
+    saveFolders(folders, selectedClientId || clients[0]?.id, user?.id);
+  }, [folders, selectedClientId, clients, user?.id]);
 
   useEffect(() => {
     saveSolicitorProfile(user);
@@ -510,8 +575,11 @@ export function App() {
 
   // Folders under the active tab
   const tabFolders = useMemo(() => {
-    return folders.filter((f) => f.collectionId === activeTab.id);
-  }, [folders, activeTab.id]);
+    if (!activeTab?.id || activeTab.id === 'default') return folders;
+    const match = folders.filter((f) => f.collectionId === activeTab.id);
+    if (match.length > 0) return match;
+    return folders;
+  }, [folders, activeTab?.id]);
 
   // Documents under the active tab
   const tabDocuments = useMemo(() => {
@@ -1162,26 +1230,24 @@ export function App() {
       alert('Please sign in to sync documents directly to your cloud account.');
       return;
     }
-    const unsynced = documents.filter((d) => d.url && d.url.startsWith('data:'));
-    if (unsynced.length === 0) {
-      alert('All documents are already synced to the online cloud!');
-      return;
-    }
     try {
-      const migrated = await migrateLocalDocumentsToCloud(documents, user.id);
-      const stillLocal = migrated.filter((d) => d.url && d.url.startsWith('data:'));
-      const syncedCount = unsynced.length - stillLocal.length;
+      // 1. Sync folders to Supabase under client
+      saveFolders(folders, selectedClientId || clients[0]?.id, user.id);
 
-      setDocuments(deduplicateDocuments(migrated));
+      // 2. Sync all documents to Supabase
+      await syncDocumentsToSupabase(documents, user.id, tabs, clients);
 
-      if (syncedCount > 0) {
-        alert(`Successfully synced ${syncedCount} document(s) directly to the cloud!`);
-      } else {
-        alert('File is safely saved in your local vault. Cloud upload will automatically retry when connected.');
+      // 3. Migrate any local base64 files to high-speed cloud storage
+      const unsynced = documents.filter((d) => d.url && d.url.startsWith('data:'));
+      if (unsynced.length > 0) {
+        const migrated = await migrateLocalDocumentsToCloud(documents, user.id);
+        setDocuments(deduplicateDocuments(migrated));
       }
+
+      alert(`Cloud sync complete! ${documents.length} document(s) and folders are safely synced to your cloud account.`);
     } catch (e) {
       console.warn('Sync local documents note:', e);
-      alert('Your documents remain safely preserved in your local vault.');
+      alert('Documents remain safely preserved in your local vault.');
     }
   };
 
@@ -1345,7 +1411,43 @@ export function App() {
           />
 
           {/* Document Workspace */}
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
+          <div 
+            className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes('Files')) {
+                e.preventDefault();
+                setIsWorkspaceDragging(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setIsWorkspaceDragging(false);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsWorkspaceDragging(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleUploadFiles(e.dataTransfer.files);
+              }
+            }}
+          >
+            {/* Workspace-level Drag & Drop Visual Overlay */}
+            {isWorkspaceDragging && (
+              <div 
+                className="absolute inset-0 z-50 bg-[#1a73e8]/10 backdrop-blur-xs border-2 border-dashed border-[#1a73e8] rounded-xl flex flex-col items-center justify-center p-8 pointer-events-none"
+              >
+                <div className="bg-white px-8 py-6 rounded-2xl shadow-xl border border-[#dadce0] flex flex-col items-center text-center">
+                  <div className="w-16 h-16 rounded-full bg-[#e8f0fe] flex items-center justify-center text-[#1a73e8] mb-3">
+                    <UploadCloud className="w-8 h-8 animate-bounce" />
+                  </div>
+                  <p className="text-lg font-bold text-[#202124]">Drop files to upload</p>
+                  <p className="text-sm text-[#5f6368] mt-1">
+                    Files will be added to <span className="font-semibold text-[#1a73e8]">{activeTab?.name || 'Active Tab'}</span>
+                  </p>
+                </div>
+              </div>
+            )}
             {/* Left Documents List */}
             <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-[380px] lg:w-[420px] flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden flex-shrink-0`}>
               <DocumentList

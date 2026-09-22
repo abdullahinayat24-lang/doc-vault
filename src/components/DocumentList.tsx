@@ -521,6 +521,10 @@ export const DocumentList: React.FC<DocumentListProps> = ({
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (e.dataTransfer.types.includes('Files')) {
+            setIsDragging(true);
+            return;
+          }
           const rect = e.currentTarget.getBoundingClientRect();
           const pos = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
           if (reorderTargetId !== doc.id || reorderPosition !== pos) {
@@ -538,6 +542,20 @@ export const DocumentList: React.FC<DocumentListProps> = ({
           e.preventDefault();
           e.stopPropagation();
           setIsDragging(false);
+
+          // Handle external files dropped on this card
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            if (!doc.hasFile) {
+              onUploadToFileSlot(doc.id, e.dataTransfer.files[0]);
+            } else if (doc.folderId && onUploadFilesToFolder) {
+              onUploadFilesToFolder(e.dataTransfer.files, doc.folderId);
+            } else {
+              onUploadFiles(e.dataTransfer.files);
+            }
+            setReorderTargetId(null);
+            return;
+          }
+
           const sourceDocId = e.dataTransfer.getData('text/doc-id') || e.dataTransfer.getData('text/plain') || (window as any)._draggedDocId;
           if (sourceDocId && sourceDocId !== doc.id && onReorderDocument) {
             onReorderDocument(sourceDocId, doc.id, reorderPosition);
@@ -1215,6 +1233,16 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Visual Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-40 bg-[#1a73e8]/10 backdrop-blur-xs border-2 border-dashed border-[#1a73e8] flex flex-col items-center justify-center p-4 text-center pointer-events-none">
+          <div className="bg-white px-5 py-4 rounded-2xl shadow-lg border border-[#dadce0] flex flex-col items-center">
+            <UploadCloud className="w-8 h-8 text-[#1a73e8] animate-bounce mb-1.5" />
+            <p className="text-xs font-bold text-[#1a73e8]">Drop files to upload</p>
+            <p className="text-[10px] text-[#5f6368] mt-0.5">PDF, PNG, JPG, or EPUB</p>
+          </div>
+        </div>
+      )}
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
@@ -1783,16 +1811,38 @@ export const DocumentList: React.FC<DocumentListProps> = ({
       {/* Document Items List */}
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain divide-y divide-[#f1f3f4]">
         {filteredDocuments.length === 0 && rootFolders.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center p-6 text-center text-[#5f6368]">
-            <div className="w-12 h-12 rounded-full bg-[#f1f3f4] flex items-center justify-center mb-3">
-              <FileCheck className="w-6 h-6 text-[#bdc1c6]" />
+          <div 
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer.types.includes('Files')) {
+                setIsDragging(true);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                onUploadFiles(e.dataTransfer.files);
+              }
+            }}
+            className="h-full flex flex-col items-center justify-center p-6 text-center text-[#5f6368]"
+          >
+            <div className="w-12 h-12 rounded-full bg-[#e8f0fe] flex items-center justify-center mb-3 text-[#1a73e8]">
+              <UploadCloud className="w-6 h-6 animate-pulse" />
             </div>
-            <p className="text-sm font-medium text-[#202124]">No documents or folders found</p>
-            <p className="text-xs text-[#5f6368] mt-1 max-w-[200px]">
-              {statusFilter !== 'all' 
-                ? 'No documents match this filter.' 
-                : 'Upload PDF, JPG, PNG, or create a folder to organize bills and certificates.'}
+            <p className="text-sm font-semibold text-[#202124]">No documents or folders</p>
+            <p className="text-xs text-[#5f6368] mt-1 max-w-[220px]">
+              {statusFilter !== 'all'
+                ? 'No documents match this filter.'
+                : 'Drag & drop files anywhere here, or browse files to add.'}
             </p>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="mt-3 px-3.5 py-1.5 bg-[#1a73e8] hover:bg-[#1557b0] text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+            >
+              Upload Documents
+            </button>
           </div>
         ) : (
           <>

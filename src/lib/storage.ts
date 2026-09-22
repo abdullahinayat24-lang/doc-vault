@@ -327,12 +327,13 @@ export const getInitialFolders = (): DocumentFolder[] => {
   return []; // Empty by default
 };
 
-export const saveFolders = (folders: DocumentFolder[]) => {
+export const saveFolders = (folders: DocumentFolder[], clientId?: string, solicitorId?: string) => {
   try {
     localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
   } catch (err) {
     console.warn('saveFolders quota error:', err);
   }
+  syncFoldersToSupabase(folders, clientId, solicitorId).catch(() => {});
 };
 
 export const getInitialDocuments = (): DocumentItem[] => {
@@ -459,43 +460,95 @@ export const saveDocuments = (docs: DocumentItem[], solicitorId?: string) => {
   }
 };
 
-export const syncSingleDocumentToSupabase = async (doc: DocumentItem, solicitorId?: string): Promise<boolean> => {
+export const extractFoldersFromClients = (clients: ClientRecord[]): DocumentFolder[] => {
+  const foldersMap = new Map<string, DocumentFolder>();
+  for (const c of clients) {
+    if (c.notes) {
+      const match = c.notes.match(/\[FOLDERS_META:([\s\S]*?)\]/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((f: DocumentFolder) => foldersMap.set(f.id, f));
+          }
+        } catch (e) {
+          console.warn('Folder parse error:', e);
+        }
+      }
+    }
+  }
+  return Array.from(foldersMap.values());
+};
+
+export const syncFoldersToSupabase = async (
+  folders: DocumentFolder[],
+  clientId?: string,
+  solicitorId?: string
+) => {
+  if (!supabase || !folders || folders.length === 0) return;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id;
+
+    if (clientId) {
+      const safeClientId = toDeterministicUUID(clientId);
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('notes')
+        .eq('id', safeClientId)
+        .maybeSingle();
+
+      let currentNotes = clientData?.notes || '';
+      currentNotes = currentNotes.replace(/\[FOLDERS_META:[\s\S]*?\]/, '').trim();
+      const meta = `[FOLDERS_META:${JSON.stringify(folders)}]`;
+      const updatedNotes = currentNotes ? `${currentNotes} ${meta}` : meta;
+
+      await supabase
+        .from('clients')
+        .update({ notes: updatedNotes })
+        .eq('id', safeClientId);
+    }
+  } catch (err) {
+    console.warn('Supabase folder sync note:', err);
+  }
+};
+
+export const syncSingleDocumentToSupabase = async (
+  doc: DocumentItem, 
+  solicitorId?: string,
+  fallbackClientId?: string
+): Promise<boolean> => {
   if (!supabase) return false;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
 
-    const docId = doc.id;
-
-    // Prevent huge base64 payloads from blowing up Supabase HTTP payload limits
+    const docId = toDeterministicUUID(doc.id);
     const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
 
-    // Encode folderId in notes so it persists even without explicit folder_id schema column
     let notesWithFolder = doc.notes || '';
     if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
       notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
     }
 
+    const resolvedClientId = toDeterministicUUID(doc.clientId || fallbackClientId);
+    const resolvedCollectionId = toDeterministicUUID(doc.collectionId);
+
     const payload: any = {
       id: docId,
       name: doc.name,
-      file_type: doc.fileType,
+      file_type: doc.fileType || 'pdf',
       file_size: doc.fileSize || 0,
       url: safeUrl || '',
-      content: doc.content || null,
       has_file: doc.hasFile !== false,
       status: doc.status || 'pending',
-      notes: notesWithFolder
+      notes: notesWithFolder,
+      client_id: resolvedClientId,
+      collection_id: resolvedCollectionId
     };
 
     if (isUUID(resolvedSolicitorId)) {
       payload.solicitor_id = resolvedSolicitorId;
-    }
-    if (isUUID(doc.collectionId)) {
-      payload.collection_id = doc.collectionId;
-    }
-    if (isUUID(doc.clientId)) {
-      payload.client_id = doc.clientId;
     }
 
     const { error } = await supabase.from('documents').upsert(payload, { onConflict: 'id' });
@@ -510,42 +563,60 @@ export const syncSingleDocumentToSupabase = async (doc: DocumentItem, solicitorI
   }
 };
 
-export const syncDocumentsToSupabase = async (docs: DocumentItem[], solicitorId?: string) => {
-  if (!supabase) return;
+export const syncDocumentsToSupabase = async (
+  docs: DocumentItem[], 
+  solicitorId?: string,
+  tabs?: CollectionTab[],
+  clients?: ClientRecord[]
+) => {
+  if (!supabase || docs.length === 0) return;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
 
-    for (const doc of docs.slice(0, 50)) {
-      const docId = doc.id;
-      const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+    const defaultClientId = clients && clients.length > 0 ? toDeterministicUUID(clients[0].id) : undefined;
+    const defaultCollectionId = tabs && tabs.length > 0 ? toDeterministicUUID(tabs[0].id) : undefined;
 
-      let notesWithFolder = doc.notes || '';
-      if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
-        notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
+    // Process in batches of 50
+    for (let i = 0; i < docs.length; i += 50) {
+      const chunk = docs.slice(i, i + 50);
+      const batchPayloads: any[] = [];
+
+      for (const doc of chunk) {
+        const docId = toDeterministicUUID(doc.id);
+        const safeUrl = doc.url && doc.url.startsWith('data:') && doc.url.length > 300000 ? '' : doc.url;
+
+        let notesWithFolder = doc.notes || '';
+        if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
+          notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
+        }
+
+        const tabMatch = tabs?.find((t) => t.id === doc.collectionId);
+        const resolvedClientId = toDeterministicUUID(doc.clientId || tabMatch?.clientId || defaultClientId);
+        const resolvedCollectionId = toDeterministicUUID(doc.collectionId || defaultCollectionId);
+
+        const payload: any = {
+          id: docId,
+          name: doc.name,
+          file_type: doc.fileType || 'pdf',
+          file_size: doc.fileSize || 0,
+          url: safeUrl || '',
+          has_file: doc.hasFile !== false,
+          status: doc.status || 'pending',
+          notes: notesWithFolder,
+          client_id: resolvedClientId,
+          collection_id: resolvedCollectionId
+        };
+        if (isUUID(resolvedSolicitorId)) {
+          payload.solicitor_id = resolvedSolicitorId;
+        }
+        batchPayloads.push(payload);
       }
 
-      const payload: any = {
-        id: docId,
-        name: doc.name,
-        file_type: doc.fileType,
-        file_size: doc.fileSize || 0,
-        url: safeUrl || '',
-        content: doc.content || null,
-        has_file: doc.hasFile !== false,
-        status: doc.status || 'pending',
-        notes: notesWithFolder
-      };
-      if (isUUID(resolvedSolicitorId)) {
-        payload.solicitor_id = resolvedSolicitorId;
+      const { error } = await supabase.from('documents').upsert(batchPayloads, { onConflict: 'id' });
+      if (error) {
+        console.warn('Supabase batch document upsert note:', error.message);
       }
-      if (isUUID(doc.collectionId)) {
-        payload.collection_id = doc.collectionId;
-      }
-      if (isUUID(doc.clientId)) {
-        payload.client_id = doc.clientId;
-      }
-      await supabase.from('documents').upsert(payload, { onConflict: 'id' });
     }
   } catch (err) {
     console.warn('Supabase document sync note:', err);
