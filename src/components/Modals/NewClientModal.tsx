@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Phone, Mail, FileText, PoundSterling, AlertCircle, Users } from 'lucide-react';
+import { X, UserPlus, Phone, Mail, FileText, Euro, AlertCircle, Users } from 'lucide-react';
 import { ClientRecord, ClientPriority, StaffMember } from '../../types';
 
 interface NewClientModalProps {
@@ -194,14 +194,14 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
           {/* Financials / Fees */}
           <div className="p-3.5 bg-[#f8fafd] border border-[#dadce0] rounded-2xl space-y-3">
             <h4 className="text-xs font-bold text-[#202124] uppercase tracking-wider flex items-center gap-1.5">
-              <PoundSterling className="w-3.5 h-3.5 text-[#1a73e8]" />
+              <Euro className="w-3.5 h-3.5 text-[#1a73e8]" />
               <span>Solicitor Fees &amp; Document Costs</span>
             </h4>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">
-                  Total Agreed Fee (£)
+                  Total Agreed Fee (€)
                 </label>
                 <input
                   type="number"
@@ -214,7 +214,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
 
               <div>
                 <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">
-                  Doc Sending &amp; Registry Cost (£)
+                  Doc Sending &amp; Registry Cost (€)
                 </label>
                 <input
                   type="number"

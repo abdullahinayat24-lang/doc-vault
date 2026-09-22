@@ -5,7 +5,7 @@ import {
   Phone,
   Mail,
   FileText,
-  PoundSterling,
+  Euro,
   AlertCircle,
   Users,
   Calendar,
@@ -98,7 +98,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
     ? { label: 'Paid in Full', color: '#137333', bg: '#e6f4ea', icon: <CheckCircle2 className="w-3.5 h-3.5" /> }
     : parseFloat(amountPaid) === 0
       ? { label: 'No Payment Received', color: '#d93025', bg: '#fce8e6', icon: <AlertCircle className="w-3.5 h-3.5" /> }
-      : { label: `Balance Due: £${outstanding.toLocaleString('en-GB', { minimumFractionDigits: 0 })}`, color: '#b06000', bg: '#fef7e0', icon: <TrendingUp className="w-3.5 h-3.5" /> };
+      : { label: `Balance Due: €${outstanding.toLocaleString('en-GB', { minimumFractionDigits: 0 })}`, color: '#b06000', bg: '#fef7e0', icon: <TrendingUp className="w-3.5 h-3.5" /> };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs select-none">
@@ -258,7 +258,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
           <div className="p-4 bg-[#f0fdf4] border border-[#137333]/20 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-[#137333] uppercase tracking-wider flex items-center gap-1.5">
-                <PoundSterling className="w-3.5 h-3.5" /> Payment & Fees
+                <Euro className="w-3.5 h-3.5" /> Payment & Fees
               </h4>
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold" style={{ backgroundColor: paymentStatus.bg, color: paymentStatus.color }}>
                 {paymentStatus.icon}
@@ -268,7 +268,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">Agreed Solicitor Fee (£)</label>
+                <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">Agreed Solicitor Fee (€)</label>
                 <input
                   type="number"
                   value={totalAskingAmount}
@@ -277,7 +277,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">Doc / Registry Cost (£)</label>
+                <label className="block text-[11px] font-semibold text-[#5f6368] mb-1">Doc / Registry Cost (€)</label>
                 <input
                   type="number"
                   value={totalDocCost}
@@ -286,7 +286,7 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-[#137333] mb-1">Amount Paid (£)</label>
+                <label className="block text-[11px] font-semibold text-[#137333] mb-1">Amount Paid (€)</label>
                 <input
                   type="number"
                   value={amountPaid}
@@ -297,9 +297,9 @@ export const EditClientModal: React.FC<EditClientModalProps> = ({
             </div>
 
             <div className="flex items-center justify-between text-xs font-semibold text-[#3c4043] pt-1 border-t border-[#dadce0]">
-              <span>Total Cost: £{(parseFloat(totalAskingAmount || '0') + parseFloat(totalDocCost || '0')).toLocaleString()}</span>
+              <span>Total Cost: €{(parseFloat(totalAskingAmount || '0') + parseFloat(totalDocCost || '0')).toLocaleString()}</span>
               <span className={outstanding > 0 ? 'text-[#d93025] font-bold' : 'text-[#137333] font-bold'}>
-                {outstanding > 0 ? `Outstanding: £${outstanding.toLocaleString()}` : '✓ Fully Paid'}
+                {outstanding > 0 ? `Outstanding: €${outstanding.toLocaleString()}` : '✓ Fully Paid'}
               </span>
             </div>
           </div>

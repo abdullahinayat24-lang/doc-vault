@@ -6,7 +6,7 @@ import {
   MapPin, 
   Users, 
   Briefcase, 
-  PoundSterling, 
+  Euro, 
   Search, 
   ArrowUpDown, 
   Plus, 
@@ -303,11 +303,11 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
 
             <div className="p-3.5 bg-[#f8fafd] border border-[#dadce0] rounded-2xl">
               <span className="text-xs text-[#5f6368] font-medium flex items-center gap-1.5">
-                <PoundSterling className="w-4 h-4 text-[#137333]" />
+                <Euro className="w-4 h-4 text-[#137333]" />
                 Total Solicitor Fees
               </span>
-              <p className="text-xl font-bold text-[#137333] mt-1">£{totalAskingFees.toLocaleString()}</p>
-              <span className="text-[10px] text-[#5f6368]">Doc Costs: £{totalDocSendingCosts.toLocaleString()}</span>
+              <p className="text-xl font-bold text-[#137333] mt-1">€{totalAskingFees.toLocaleString()}</p>
+              <span className="text-[10px] text-[#5f6368]">Doc Costs: €{totalDocSendingCosts.toLocaleString()}</span>
             </div>
 
             <div className="p-3.5 bg-[#f8fafd] border border-[#dadce0] rounded-2xl">
@@ -543,17 +543,17 @@ export const CompanyDashboard: React.FC<CompanyDashboardProps> = ({
                         {/* Financial Chips */}
                         <div className="text-left lg:text-right space-y-0.5">
                           <div className="flex items-center lg:justify-end gap-1.5 text-sm font-bold text-[#137333]">
-                            <PoundSterling className="w-3.5 h-3.5" />
-                            <span>Fee: £{client.totalAskingAmount?.toLocaleString()}</span>
+                            <Euro className="w-3.5 h-3.5" />
+                            <span>Fee: €{client.totalAskingAmount?.toLocaleString()}</span>
                           </div>
                           <div className="text-xs text-[#5f6368]">
-                            Doc Cost: <strong className="text-[#202124]">£{client.totalDocCost?.toLocaleString()}</strong>
+                            Doc Cost: <strong className="text-[#202124]">€{client.totalDocCost?.toLocaleString()}</strong>
                           </div>
                           {/* Outstanding Balance */}
                           {outstanding > 0 ? (
                             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#b06000] bg-[#fef7e0] px-2 py-0.5 rounded-full border border-[#fce8b2]">
                               <TrendingUp className="w-3 h-3" />
-                              <span>Owes: £{outstanding.toLocaleString()}</span>
+                              <span>Owes: €{outstanding.toLocaleString()}</span>
                             </div>
                           ) : (
                             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#137333] bg-[#e6f4ea] px-2 py-0.5 rounded-full">
