@@ -27,6 +27,7 @@ import {
   saveSolicitorProfile 
 } from '../lib/storage';
 import { 
+  demoSolicitorProfile,
   initialSolicitorProfile, 
   initialClients, 
   initialTabs, 
@@ -94,30 +95,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const isEmailNotConfirmed = Boolean(error && error.toLowerCase().includes('email not confirmed'));
 
   const handleLaunchDemo = () => {
-    const demoProfile: SolicitorProfile = {
-      ...initialSolicitorProfile,
-      id: 'solicitor_demo_preview',
-      email: 'demo@docvault.law',
-      displayName: 'David Sterling, Esq.',
-      companyName: 'Apex Legal & Solicitor Chambers',
-      phone: '+44 20 7946 0912',
-      address: '14 Chancery Lane, London, WC2A 1LB',
-      pinCode: '1234',
-      isDemoMode: true,
-      role: 'admin',
-      firmThemeColor: '#1a73e8'
-    };
-
-    const existingClients = getClients();
-    if (!existingClients || existingClients.length === 0) {
-      saveClients(initialClients);
-      saveTabs(initialTabs);
-      saveFolders(initialFolders);
-      saveDocuments(initialDocuments);
-    }
-
-    saveSolicitorProfile(demoProfile);
-    onAuthenticated(demoProfile);
+    saveSolicitorProfile(demoSolicitorProfile);
+    onAuthenticated(demoSolicitorProfile);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

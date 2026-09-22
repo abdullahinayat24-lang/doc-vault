@@ -6,6 +6,7 @@ import mammoth from 'mammoth';
 import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder, StaffMember, AuditLogEntry, DocumentVersion } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { idbSaveDocuments, idbGetDocuments } from './idbStorage';
+import { initialClients, initialTabs, initialFolders, initialDocuments, initialStaff, demoSolicitorProfile } from './sampleDocs';
 
 // Configure PDF.js worker for storage operations
 if (typeof window !== 'undefined' && 'Worker' in window && !pdfjsLib.GlobalWorkerOptions?.workerSrc) {
@@ -21,6 +22,117 @@ const FOLDERS_KEY = 'docvault_document_folders';
 const SHARES_KEY = 'docvault_shares';
 const PROFILE_KEY = 'docvault_solicitor_profile';
 const PIN_KEY = 'docvault_lock_pin';
+
+// Isolated Demo Storage Keys
+const DEMO_CLIENTS_KEY = 'docvault_demo_clients';
+const DEMO_TABS_KEY = 'docvault_demo_tabs';
+const DEMO_DOCS_KEY = 'docvault_demo_documents';
+const DEMO_FOLDERS_KEY = 'docvault_demo_folders';
+const DEMO_STAFF_KEY = 'docvault_demo_staff';
+
+export const isDemoUser = (userOrId?: SolicitorProfile | string | null): boolean => {
+  if (!userOrId) return false;
+  if (typeof userOrId === 'string') {
+    return (
+      userOrId === 'solicitor_demo_preview' ||
+      userOrId === 'demo@docvault.law' ||
+      userOrId.startsWith('demo-staff-') ||
+      userOrId.endsWith('@apexlaw.co.uk')
+    );
+  }
+  return Boolean(
+    userOrId.isDemoMode ||
+    userOrId.id === 'solicitor_demo_preview' ||
+    userOrId.email === 'demo@docvault.law' ||
+    userOrId.email?.endsWith('@apexlaw.co.uk') ||
+    userOrId.id?.startsWith('demo-staff-')
+  );
+};
+
+export const getDemoClients = (): ClientRecord[] => {
+  const saved = localStorage.getItem(DEMO_CLIENTS_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  return initialClients;
+};
+
+export const saveDemoClients = (clients: ClientRecord[]) => {
+  try {
+    localStorage.setItem(DEMO_CLIENTS_KEY, JSON.stringify(clients));
+  } catch {}
+};
+
+export const getDemoTabs = (): CollectionTab[] => {
+  const saved = localStorage.getItem(DEMO_TABS_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  return initialTabs;
+};
+
+export const saveDemoTabs = (tabs: CollectionTab[]) => {
+  try {
+    localStorage.setItem(DEMO_TABS_KEY, JSON.stringify(tabs));
+  } catch {}
+};
+
+export const getDemoDocuments = (): DocumentItem[] => {
+  const saved = localStorage.getItem(DEMO_DOCS_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  return initialDocuments;
+};
+
+export const saveDemoDocuments = (docs: DocumentItem[]) => {
+  try {
+    localStorage.setItem(DEMO_DOCS_KEY, JSON.stringify(docs));
+  } catch {}
+};
+
+export const getDemoFolders = (): DocumentFolder[] => {
+  const saved = localStorage.getItem(DEMO_FOLDERS_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  return initialFolders;
+};
+
+export const saveDemoFolders = (folders: DocumentFolder[]) => {
+  try {
+    localStorage.setItem(DEMO_FOLDERS_KEY, JSON.stringify(folders));
+  } catch {}
+};
+
+export const getDemoStaff = (): StaffMember[] => {
+  const saved = localStorage.getItem(DEMO_STAFF_KEY);
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  return initialStaff;
+};
+
+export const saveDemoStaff = (staff: StaffMember[]) => {
+  try {
+    localStorage.setItem(DEMO_STAFF_KEY, JSON.stringify(staff));
+  } catch {}
+};
 
 export const generateUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -57,7 +169,7 @@ export const toDeterministicUUID = (str?: string): string => {
 };
 
 export const ensureUserProfileInSupabase = async (user: SolicitorProfile) => {
-  if (!supabase || !user?.id || !isUUID(user.id)) return;
+  if (!supabase || !user?.id || !isUUID(user.id) || isDemoUser(user)) return;
   try {
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
@@ -92,7 +204,7 @@ export const getClients = (): ClientRecord[] => {
 };
 
 export const syncClientToSupabase = async (client: ClientRecord, solicitorId?: string): Promise<boolean> => {
-  if (!supabase) return false;
+  if (!supabase || isDemoUser(solicitorId)) return false;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
@@ -131,8 +243,8 @@ export const syncClientToSupabase = async (client: ClientRecord, solicitorId?: s
   }
 };
 
-export const deleteClientFromSupabase = async (clientId: string): Promise<boolean> => {
-  if (!supabase) return false;
+export const deleteClientFromSupabase = async (clientId: string, solicitorId?: string): Promise<boolean> => {
+  if (!supabase || isDemoUser(solicitorId)) return false;
   try {
     const safeId = toDeterministicUUID(clientId);
     const { error } = await supabase.from('clients').delete().eq('id', safeId);
@@ -148,7 +260,7 @@ export const deleteClientFromSupabase = async (clientId: string): Promise<boolea
 };
 
 export const syncClientsToSupabase = async (clients: ClientRecord[], solicitorId?: string) => {
-  if (!supabase) return;
+  if (!supabase || isDemoUser(solicitorId)) return;
   for (const c of clients) {
     await syncClientToSupabase(c, solicitorId).catch(() => {});
   }
@@ -192,7 +304,7 @@ export const fetchClientsFromSupabase = async (solicitorId?: string): Promise<Cl
 };
 
 export const syncTabToSupabase = async (tab: CollectionTab, solicitorId?: string): Promise<boolean> => {
-  if (!supabase) return false;
+  if (!supabase || isDemoUser(solicitorId)) return false;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
@@ -227,8 +339,8 @@ export const syncTabToSupabase = async (tab: CollectionTab, solicitorId?: string
   }
 };
 
-export const deleteTabFromSupabase = async (tabId: string): Promise<boolean> => {
-  if (!supabase) return false;
+export const deleteTabFromSupabase = async (tabId: string, solicitorId?: string): Promise<boolean> => {
+  if (!supabase || isDemoUser(solicitorId)) return false;
   try {
     const safeId = toDeterministicUUID(tabId);
     const { error } = await supabase.from('collections').delete().eq('id', safeId);
@@ -244,7 +356,7 @@ export const deleteTabFromSupabase = async (tabId: string): Promise<boolean> => 
 };
 
 export const syncTabsToSupabase = async (tabs: CollectionTab[], solicitorId?: string) => {
-  if (!supabase) return;
+  if (!supabase || isDemoUser(solicitorId)) return;
   for (const t of tabs) {
     await syncTabToSupabase(t, solicitorId).catch(() => {});
   }
@@ -281,6 +393,10 @@ export const fetchTabsFromSupabase = async (solicitorId?: string): Promise<Colle
 };
 
 export const saveClients = (clients: ClientRecord[], solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    saveDemoClients(clients);
+    return;
+  }
   try {
     localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
   } catch (err) {
@@ -307,6 +423,10 @@ export const getInitialTabs = (): CollectionTab[] => {
 };
 
 export const saveTabs = (tabs: CollectionTab[], solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    saveDemoTabs(tabs);
+    return;
+  }
   try {
     localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
   } catch (err) {
@@ -328,6 +448,10 @@ export const getInitialFolders = (): DocumentFolder[] => {
 };
 
 export const saveFolders = (folders: DocumentFolder[], clientId?: string, solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    saveDemoFolders(folders);
+    return;
+  }
   try {
     localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
   } catch (err) {
@@ -438,6 +562,10 @@ export const uploadFileOnline = async (
 };
 
 export const saveDocuments = (docs: DocumentItem[], solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    saveDemoDocuments(docs);
+    return;
+  }
   // Always persist full documents with unlimited quota to native IndexedDB
   idbSaveDocuments(docs).catch((e) => console.warn('IndexedDB save note:', e));
 
@@ -484,7 +612,7 @@ export const syncFoldersToSupabase = async (
   clientId?: string,
   solicitorId?: string
 ) => {
-  if (!supabase || !folders || folders.length === 0) return;
+  if (!supabase || !folders || folders.length === 0 || isDemoUser(solicitorId)) return;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
@@ -552,7 +680,7 @@ export const syncSingleDocumentToSupabase = async (
   solicitorId?: string,
   fallbackClientId?: string
 ): Promise<boolean> => {
-  if (!supabase) return false;
+  if (!supabase || isDemoUser(solicitorId)) return false;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
@@ -603,7 +731,7 @@ export const syncDocumentsToSupabase = async (
   tabs?: CollectionTab[],
   clients?: ClientRecord[]
 ) => {
-  if (!supabase || docs.length === 0) return;
+  if (!supabase || docs.length === 0 || isDemoUser(solicitorId)) return;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id;
@@ -818,7 +946,7 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
 };
 
 export const deleteDocumentFromSupabase = async (docId: string, solicitorId?: string): Promise<boolean> => {
-  if (!supabase || !docId) return false;
+  if (!supabase || !docId || isDemoUser(solicitorId)) return false;
   try {
     recordTombstone(docId);
     const validIds = new Set<string>();
@@ -842,7 +970,7 @@ export const deleteDocumentFromSupabase = async (docId: string, solicitorId?: st
 };
 
 export const deleteBatchDocumentsFromSupabase = async (docIds: string[], solicitorId?: string): Promise<boolean> => {
-  if (!supabase || !docIds || docIds.length === 0) return false;
+  if (!supabase || !docIds || docIds.length === 0 || isDemoUser(solicitorId)) return false;
   try {
     recordBatchTombstones(docIds);
     const validIds = new Set<string>();
@@ -1391,7 +1519,7 @@ const DEFAULT_STAFF: StaffMember[] = [
 ];
 
 export const syncStaffToSupabase = async (staffList: StaffMember[], solicitorId?: string) => {
-  if (!supabase) return;
+  if (!supabase || isDemoUser(solicitorId)) return;
   try {
     const authUser = (await supabase.auth.getUser())?.data?.user;
     const resolvedSolicitorId = solicitorId || authUser?.id || '4da299cb-ab44-42e5-981b-36de3e4a2555';
@@ -1457,13 +1585,24 @@ export const getStaff = (): StaffMember[] => {
         }
       }));
     }
-    return DEFAULT_STAFF;
+    return [];
   } catch {
-    return DEFAULT_STAFF;
+    return [];
   }
 };
 
 export const saveStaffMember = (member: StaffMember, solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    const staff = getDemoStaff();
+    const idx = staff.findIndex(s => s.id === member.id);
+    if (idx >= 0) {
+      staff[idx] = member;
+    } else {
+      staff.push(member);
+    }
+    saveDemoStaff(staff);
+    return;
+  }
   const staff = getStaff();
   const idx = staff.findIndex(s => s.id === member.id);
   if (idx >= 0) {
@@ -1476,6 +1615,11 @@ export const saveStaffMember = (member: StaffMember, solicitorId?: string) => {
 };
 
 export const deleteStaffMember = (id: string, solicitorId?: string) => {
+  if (isDemoUser(solicitorId)) {
+    const staff = getDemoStaff().filter(s => s.id !== id);
+    saveDemoStaff(staff);
+    return;
+  }
   const staff = getStaff().filter(s => s.id !== id);
   localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
   syncStaffToSupabase(staff, solicitorId).catch(() => {});

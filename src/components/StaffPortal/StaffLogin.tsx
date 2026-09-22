@@ -11,7 +11,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { StaffMember } from '../../types';
-import { getStaff, fetchStaffFromSupabase, updateStaffLastLogin } from '../../lib/storage';
+import { getStaff, fetchStaffFromSupabase, updateStaffLastLogin, getDemoStaff } from '../../lib/storage';
 
 interface StaffLoginProps {
   onStaffLogin: (staffMember: StaffMember) => void;
@@ -38,9 +38,11 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
     setIsLoading(true);
 
     try {
-      // Always try Supabase first so the latest staff directory is used
+      // Fetch Supabase / local staff, plus demo staff directory
       const remoteStaff = await fetchStaffFromSupabase();
-      const staffList = remoteStaff && remoteStaff.length > 0 ? remoteStaff : getStaff();
+      const realStaff = remoteStaff && remoteStaff.length > 0 ? remoteStaff : getStaff();
+      const demoStaff = getDemoStaff();
+      const staffList = [...realStaff, ...demoStaff];
 
       const cleanEmail = email.trim().toLowerCase();
       const cleanPass = password.trim();
@@ -191,6 +193,49 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
               </>
             )}
           </button>
+
+          {/* Quick Demo Staff autofill for video demo / testing */}
+          <div className="pt-2 border-t border-[#f1f3f4]">
+            <p className="text-[11px] font-bold text-[#5f6368] mb-1.5 flex items-center justify-between">
+              <span>Demo Staff Accounts (Click to test):</span>
+              <span className="text-[10px] text-[#1a73e8] font-normal">Password: staff</span>
+            </p>
+            <div className="grid grid-cols-3 gap-1.5 text-left">
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('sarah.jenkins@apexlaw.co.uk');
+                  setPassword('staff');
+                }}
+                className="p-1.5 rounded-lg border border-[#e8eaed] hover:border-[#1a73e8] bg-[#f8fafd] text-[11px] leading-tight text-[#202124] transition-colors"
+              >
+                <div className="font-semibold truncate">Sarah J.</div>
+                <div className="text-[10px] text-[#5f6368] truncate">Paralegal</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('mohammed.f@apexlaw.co.uk');
+                  setPassword('staff');
+                }}
+                className="p-1.5 rounded-lg border border-[#e8eaed] hover:border-[#1a73e8] bg-[#f8fafd] text-[11px] leading-tight text-[#202124] transition-colors"
+              >
+                <div className="font-semibold truncate">Mohammed F.</div>
+                <div className="text-[10px] text-[#5f6368] truncate">Solicitor</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmail('emma.watson@apexlaw.co.uk');
+                  setPassword('staff');
+                }}
+                className="p-1.5 rounded-lg border border-[#e8eaed] hover:border-[#1a73e8] bg-[#f8fafd] text-[11px] leading-tight text-[#202124] transition-colors"
+              >
+                <div className="font-semibold truncate">Emma W.</div>
+                <div className="text-[10px] text-[#5f6368] truncate">Legal Sec.</div>
+              </button>
+            </div>
+          </div>
 
           <div className="pt-2 text-center border-t border-[#f1f3f4]">
             <p className="text-[11px] text-[#70757a]">

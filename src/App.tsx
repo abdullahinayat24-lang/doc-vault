@@ -65,7 +65,13 @@ import {
   getAuditLogs,
   recordAuditLog,
   clearAuditLogs,
-  generateFullFirmBackup
+  generateFullFirmBackup,
+  getDemoClients,
+  getDemoTabs,
+  getDemoDocuments,
+  getDemoFolders,
+  getDemoStaff,
+  isDemoUser
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -284,12 +290,24 @@ export function App() {
 
   // Main state - null profile by default prompts Create Account / Sign In
   const [user, setUser] = useState<SolicitorProfile | null>(() => getSolicitorProfile());
-  const [clients, setClients] = useState<ClientRecord[]>(() => getClients());
+  const [clients, setClients] = useState<ClientRecord[]>(() => {
+    const p = getSolicitorProfile();
+    return isDemoUser(p) ? getDemoClients() : getClients();
+  });
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
-  const [tabs, setTabs] = useState<CollectionTab[]>(() => getInitialTabs());
-  const [documents, setDocuments] = useState<DocumentItem[]>(() => deduplicateDocuments(getInitialDocuments()));
-  const [folders, setFolders] = useState<DocumentFolder[]>(() => getInitialFolders());
+  const [tabs, setTabs] = useState<CollectionTab[]>(() => {
+    const p = getSolicitorProfile();
+    return isDemoUser(p) ? getDemoTabs() : getInitialTabs();
+  });
+  const [documents, setDocuments] = useState<DocumentItem[]>(() => {
+    const p = getSolicitorProfile();
+    return isDemoUser(p) ? deduplicateDocuments(getDemoDocuments()) : deduplicateDocuments(getInitialDocuments());
+  });
+  const [folders, setFolders] = useState<DocumentFolder[]>(() => {
+    const p = getSolicitorProfile();
+    return isDemoUser(p) ? getDemoFolders() : getInitialFolders();
+  });
   
   const [activeTabId, setActiveTabId] = useState<string>('');
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
@@ -358,16 +376,40 @@ export function App() {
   }, [documents]);
 
   // Staff & Team Directory
-  const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
+  const [staffList, setStaffList] = useState<StaffMember[]>(() => {
+    const p = getSolicitorProfile();
+    return isDemoUser(p) ? getDemoStaff() : getStaff();
+  });
 
-  // Fetch updated staff directory from Supabase on mount
+  // Switch datasets cleanly when transitioning between Demo Mode and Real Solicitor Account
   useEffect(() => {
+    const isDemo = isDemoUser(user) || isDemoUser(currentStaffSession?.email) || isDemoUser(currentStaffSession?.id);
+    if (!user && !currentStaffSession) return;
+    if (isDemo) {
+      setClients(getDemoClients());
+      setTabs(getDemoTabs());
+      setDocuments(deduplicateDocuments(getDemoDocuments()));
+      setFolders(getDemoFolders());
+      setStaffList(getDemoStaff());
+      setSelectedClientId(null);
+    } else {
+      setClients(getClients());
+      setTabs(getInitialTabs());
+      setDocuments(deduplicateDocuments(getInitialDocuments()));
+      setFolders(getInitialFolders());
+      setStaffList(getStaff());
+    }
+  }, [user?.id, user?.isDemoMode, currentStaffSession?.id]);
+
+  // Fetch updated staff directory from Supabase on mount (real accounts only)
+  useEffect(() => {
+    if (isDemoUser(user)) return;
     fetchStaffFromSupabase().then((remoteStaff) => {
       if (remoteStaff && remoteStaff.length > 0) {
         setStaffList(remoteStaff);
       }
     });
-  }, []);
+  }, [user?.id, user?.isDemoMode]);
 
   const handleStaffLogout = () => {
     sessionStorage.removeItem('docvault_staff_session');
@@ -389,12 +431,12 @@ export function App() {
 
   const handleAddStaffMember = (member: StaffMember) => {
     saveStaffMember(member, user?.id);
-    setStaffList(getStaff());
+    setStaffList(isDemoUser(user) ? getDemoStaff() : getStaff());
   };
 
   const handleDeleteStaffMember = (id: string) => {
     deleteStaffMember(id, user?.id);
-    setStaffList(getStaff());
+    setStaffList(isDemoUser(user) ? getDemoStaff() : getStaff());
   };
 
   const handleAssignStaffToClient = (clientId: string, staffId?: string) => {
@@ -402,7 +444,7 @@ export function App() {
       const updated = prev.map((c) =>
         c.id === clientId ? { ...c, assignedStaffId: staffId, updatedAt: new Date().toISOString() } : c
       );
-      saveClients(updated);
+      saveClients(updated, user?.id);
       return updated;
     });
   };
@@ -553,6 +595,11 @@ export function App() {
 
   // Hydrate full documents from IndexedDB on startup, clean duplicates, and sync with Supabase
   useEffect(() => {
+    if (isDemoUser(user)) {
+      isHydrated.current = true;
+      return;
+    }
+
     idbGetDocuments().then(async (idbDocs) => {
       isHydrated.current = true;
       if (idbDocs && idbDocs.length > 0) {
@@ -563,7 +610,7 @@ export function App() {
       console.warn('IndexedDB initial load note:', err);
     });
 
-    if (user?.id) {
+    if (user?.id && !isDemoUser(user)) {
       // 1. Ensure user profile exists in Supabase so foreign key constraints succeed
       ensureUserProfileInSupabase(user).catch(() => {});
 
@@ -692,7 +739,7 @@ export function App() {
         }
       }).catch((err) => console.warn('Supabase initial documents load note:', err));
     }
-  }, [user?.id]);
+  }, [user?.id, user?.isDemoMode]);
 
   // Sync to localStorage and Supabase cloud
   useEffect(() => {
@@ -1782,14 +1829,19 @@ export function App() {
     return (
       <AuthScreen
         onAuthenticated={(profile) => {
-          if (profile.isDemoMode) {
-            const freshClients = getClients();
-            if (freshClients.length > 0) {
-              setClients(freshClients);
-              setTabs(getInitialTabs());
-              setDocuments(deduplicateDocuments(getInitialDocuments()));
-              setFolders(getInitialFolders());
-            }
+          if (isDemoUser(profile)) {
+            setClients(getDemoClients());
+            setTabs(getDemoTabs());
+            setDocuments(deduplicateDocuments(getDemoDocuments()));
+            setFolders(getDemoFolders());
+            setStaffList(getDemoStaff());
+            setSelectedClientId(null);
+          } else {
+            setClients(getClients());
+            setTabs(getInitialTabs());
+            setDocuments(deduplicateDocuments(getInitialDocuments()));
+            setFolders(getInitialFolders());
+            setStaffList(getStaff());
           }
           setUser(profile);
           saveSolicitorProfile(profile);
@@ -1798,14 +1850,19 @@ export function App() {
     );
   }
 
+  const isDemoStaff = Boolean(
+    currentStaffSession?.id?.startsWith('demo-staff-') ||
+    currentStaffSession?.email?.endsWith('@apexlaw.co.uk')
+  );
+
   // Effective profile for display
   const effectiveUser: SolicitorProfile = user || {
-    id: '4da299cb-ab44-42e5-981b-36de3e4a2555',
+    id: currentStaffSession?.id || '4da299cb-ab44-42e5-981b-36de3e4a2555',
     email: currentStaffSession?.email || 'staff@lawchambers.co.uk',
     displayName: currentStaffSession?.name || 'Staff Member',
-    companyName: 'DocVault Legal Chambers',
+    companyName: isDemoStaff ? 'Apex Legal & Solicitor Chambers' : 'DocVault Legal Chambers',
     pinCode: '1234',
-    isDemoMode: false,
+    isDemoMode: isDemoStaff,
     role: 'staff'
   };
 

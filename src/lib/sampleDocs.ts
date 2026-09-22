@@ -1,4 +1,4 @@
-import { DocumentItem, CollectionTab, SolicitorProfile, ClientRecord, DocumentFolder } from '../types';
+import { DocumentItem, CollectionTab, SolicitorProfile, ClientRecord, DocumentFolder, StaffMember } from '../types';
 
 // Valid base64 PDF
 const samplePdfBase64 = 
@@ -47,32 +47,39 @@ const sampleCertificateSvg = `data:image/svg+xml;utf8,${encodeURIComponent(`
 `)}`;
 
 export const initialSolicitorProfile: SolicitorProfile = {
-  id: 'solicitor_7781',
-  email: 'solicitor@apexlaw.com',
+  id: 'solicitor_demo_preview',
+  email: 'demo@docvault.law',
   displayName: 'David Sterling, Esq.',
   companyName: 'Apex Legal & Solicitor Chambers',
   companyLogo: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=160&auto=format&fit=crop&q=80',
   phone: '+44 20 7946 0912',
   address: '14 Chancery Lane, London, WC2A 1LB',
+  sraNumber: 'SRA-682910',
+  website: 'https://apexlawchambers.co.uk',
   pinCode: '1234',
-  isDemoMode: true
+  isDemoMode: true,
+  role: 'admin',
+  firmThemeColor: '#1a73e8'
 };
+
+export const demoSolicitorProfile = initialSolicitorProfile;
 
 export const initialClients: ClientRecord[] = [
   {
     id: 'client-robert-vance',
     name: 'Mr. Robert Vance',
     phone: '+44 7911 123456',
-    email: 'robert.vance@example.com',
-    cameFor: 'Spouse Settlement & Leave to Remain',
+    email: 'robert.vance@example.co.uk',
+    cameFor: 'Spouse Settlement & Child Dependent Visa',
     priority: 'urgent',
-    totalDocCost: 350, // Courier, registry, biometric cost
-    totalAskingAmount: 1850, // Total agreed solicitor fee
+    totalDocCost: 350,
+    totalAskingAmount: 1850,
     amountPaid: 1200,
     firstVisitDate: '2024-01-10T10:00:00Z',
     lastVisitDate: '2025-09-18T16:00:00Z',
-    visitCount: 4, // Came 4 times
-    notes: 'Came 4 times for initial consultation, husband application 2024, wife application 2025, and biometrics review.',
+    visitCount: 4,
+    assignedStaffId: 'demo-staff-sarah',
+    notes: 'Came 4 times for spouse settlement consultation, biometric validation, and child visa dependent documentation.',
     createdAt: '2024-01-10T10:00:00Z',
     updatedAt: '2025-09-18T16:00:00Z'
   },
@@ -80,16 +87,17 @@ export const initialClients: ClientRecord[] = [
     id: 'client-elena-rostova',
     name: 'Mrs. Elena Rostova',
     phone: '+44 7822 987654',
-    email: 'elena.rostova@example.com',
-    cameFor: 'Skilled Worker Visa & Indefinite Leave to Remain',
+    email: 'elena.rostova@globaltech.co.uk',
+    cameFor: 'Skilled Worker Visa (Tier 2)',
     priority: 'high',
     totalDocCost: 280,
     totalAskingAmount: 1500,
-    amountPaid: 1500, // Fully paid
+    amountPaid: 1500,
     firstVisitDate: '2024-06-12T09:30:00Z',
     lastVisitDate: '2025-08-20T14:00:00Z',
     visitCount: 3,
-    notes: 'Came 3 times for initial application review, sponsor documentation, and police certificate verification.',
+    assignedStaffId: 'demo-staff-mohammed',
+    notes: 'Certificate of Sponsorship verified with Home Office. Police clearance and TB screening pending.',
     createdAt: '2024-06-12T09:30:00Z',
     updatedAt: '2025-08-20T14:00:00Z'
   },
@@ -97,8 +105,8 @@ export const initialClients: ClientRecord[] = [
     id: 'client-tariq-mansoor',
     name: 'Dr. Tariq Al-Mansoor',
     phone: '+44 7733 445566',
-    email: 'tariq.mansoor@example.com',
-    cameFor: 'Commercial Tenancy & Practice Lease',
+    email: 'tariq.mansoor@harleymedical.co.uk',
+    cameFor: 'Commercial Practice Lease & Partnership Tenancy',
     priority: 'normal',
     totalDocCost: 150,
     totalAskingAmount: 2200,
@@ -106,9 +114,70 @@ export const initialClients: ClientRecord[] = [
     firstVisitDate: '2025-03-01T11:00:00Z',
     lastVisitDate: '2025-07-15T15:30:00Z',
     visitCount: 2,
-    notes: 'Came 2 times for lease contract review and rent deposit guarantee execution.',
+    assignedStaffId: 'demo-staff-emma',
+    notes: 'Commercial lease agreement review for medical clinic premises in Central London.',
     createdAt: '2025-03-01T11:00:00Z',
     updatedAt: '2025-07-15T15:30:00Z'
+  }
+];
+
+export const initialStaff: StaffMember[] = [
+  {
+    id: 'demo-staff-sarah',
+    name: 'Sarah Jenkins',
+    email: 'sarah.jenkins@apexlaw.co.uk',
+    username: 'sarah.jenkins@apexlaw.co.uk',
+    password: 'staff',
+    role: 'Paralegal',
+    phone: '+44 7911 223344',
+    avatarColor: '#1a73e8',
+    assignedClientIds: ['client-robert-vance'],
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: true,
+      canDelete: false
+    },
+    inviteUsed: true,
+    createdAt: '2024-01-15T09:00:00Z'
+  },
+  {
+    id: 'demo-staff-mohammed',
+    name: 'Mohammed Farooq',
+    email: 'mohammed.f@apexlaw.co.uk',
+    username: 'mohammed.f@apexlaw.co.uk',
+    password: 'staff',
+    role: 'Solicitor',
+    phone: '+44 7922 334455',
+    avatarColor: '#137333',
+    assignedClientIds: ['client-elena-rostova'],
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: true,
+      canDelete: false
+    },
+    inviteUsed: true,
+    createdAt: '2024-03-01T10:00:00Z'
+  },
+  {
+    id: 'demo-staff-emma',
+    name: 'Emma Watson',
+    email: 'emma.watson@apexlaw.co.uk',
+    username: 'emma.watson@apexlaw.co.uk',
+    password: 'staff',
+    role: 'Legal Secretary',
+    phone: '+44 7933 445566',
+    avatarColor: '#9334ea',
+    assignedClientIds: ['client-tariq-mansoor'],
+    permissions: {
+      canView: true,
+      canUpload: true,
+      canEdit: false,
+      canDelete: false
+    },
+    inviteUsed: true,
+    createdAt: '2024-02-10T11:00:00Z'
   }
 ];
 
@@ -117,7 +186,7 @@ export const initialTabs: CollectionTab[] = [
   { 
     id: 'tab-app-2024', 
     clientId: 'client-robert-vance',
-    name: 'Application in 2024', 
+    name: 'Spouse Visa 2024', 
     caseNumber: 'RV-2024-01',
     icon: 'briefcase', 
     isDefault: true, 
@@ -127,8 +196,8 @@ export const initialTabs: CollectionTab[] = [
   { 
     id: 'tab-app-2025', 
     clientId: 'client-robert-vance',
-    name: 'Wife Application in 2025', 
-    caseNumber: 'SV-2025-02',
+    name: 'Child Visa & Dependent Filing', 
+    caseNumber: 'RV-CHD-02',
     icon: 'briefcase', 
     isDefault: true, 
     createdAt: '2025-01-15T09:00:00Z',
@@ -175,10 +244,20 @@ export const initialTabs: CollectionTab[] = [
     isDefault: true,
     createdAt: '2025-03-05T10:00:00Z',
     updatedAt: '2025-07-15T10:00:00Z'
+  },
+  { 
+    id: 'tab-tariq-partnership', 
+    clientId: 'client-tariq-mansoor',
+    name: 'Partnership Agreement', 
+    caseNumber: 'TM-PTN-02',
+    icon: 'folder', 
+    createdAt: '2025-04-01T10:00:00Z',
+    updatedAt: '2025-07-15T10:00:00Z'
   }
 ];
 
 export const initialFolders: DocumentFolder[] = [
+  // Robert Vance Folders
   {
     id: 'f-identity',
     collectionId: 'tab-app-2024',
@@ -206,6 +285,38 @@ export const initialFolders: DocumentFolder[] = [
     name: 'Child Visa & Dependent Proof',
     color: 'purple',
     createdAt: '2025-01-15T09:00:00Z'
+  },
+
+  // Elena Rostova Folders
+  {
+    id: 'f-elena-cos',
+    collectionId: 'tab-elena-worker',
+    name: 'Home Office Sponsorship & Offer',
+    color: 'blue',
+    createdAt: '2024-06-15T10:00:00Z'
+  },
+  {
+    id: 'f-elena-health',
+    collectionId: 'tab-elena-police',
+    name: 'TB Screening & Police Clearances',
+    color: 'green',
+    createdAt: '2024-08-01T10:00:00Z'
+  },
+
+  // Tariq Mansoor Folders
+  {
+    id: 'f-tariq-lease',
+    collectionId: 'tab-tariq-lease',
+    name: 'Commercial Lease & Head of Terms',
+    color: 'blue',
+    createdAt: '2025-03-05T10:00:00Z'
+  },
+  {
+    id: 'f-tariq-deposit',
+    collectionId: 'tab-tariq-lease',
+    name: 'Rent Deposit & Guarantees',
+    color: 'amber',
+    createdAt: '2025-03-05T10:00:00Z'
   }
 ];
 
@@ -267,14 +378,14 @@ export const initialDocuments: DocumentItem[] = [
     fileSize: 0,
     url: '',
     hasFile: false,
-    status: 'missing', // RED (No document uploaded yet)
+    status: 'missing', // RED
     notes: 'Missing document: Client must obtain and upload certificate from local authority.',
     createdAt: '2024-06-01T16:00:00Z',
     updatedAt: '2024-06-01T16:00:00Z',
     description: 'Required document slot created by solicitor.'
   },
 
-  // Robert Vance - Wife Application in 2025
+  // Robert Vance - Child Visa & Dependent Filing
   {
     id: 'doc-wife-pass-approved',
     clientId: 'client-robert-vance',
@@ -289,6 +400,36 @@ export const initialDocuments: DocumentItem[] = [
     createdAt: '2025-01-16T12:00:00Z',
     updatedAt: '2025-01-18T10:00:00Z',
     description: 'Approved biometric document for secondary applicant.'
+  },
+  {
+    id: 'doc-child-school',
+    clientId: 'client-robert-vance',
+    collectionId: 'tab-app-2025',
+    folderId: 'f-child',
+    name: 'Child_School_Enrollment_Letter.pdf',
+    fileType: 'pdf',
+    fileSize: 14280,
+    url: `data:application/pdf;base64,${samplePdfBase64}`,
+    hasFile: true,
+    status: 'approved', // GREEN
+    createdAt: '2025-01-22T09:00:00Z',
+    updatedAt: '2025-01-25T11:00:00Z',
+    description: 'UK Primary School letter confirming registered enrollment.'
+  },
+  {
+    id: 'doc-child-birth',
+    clientId: 'client-robert-vance',
+    collectionId: 'tab-app-2025',
+    folderId: 'f-child',
+    name: 'Child_Birth_Certificate_Certified.png',
+    fileType: 'png',
+    fileSize: 48200,
+    url: sampleCertificateSvg,
+    hasFile: true,
+    status: 'approved', // GREEN
+    createdAt: '2025-01-24T14:00:00Z',
+    updatedAt: '2025-01-25T10:00:00Z',
+    description: 'Full official birth certificate with certified legal translation.'
   },
   {
     id: 'doc-wife-bank-missing',
@@ -306,26 +447,13 @@ export const initialDocuments: DocumentItem[] = [
     updatedAt: '2025-02-01T08:00:00Z',
     description: 'Financial proof slot.'
   },
-  {
-    id: 'doc-epub-guide',
-    clientId: 'client-robert-vance',
-    collectionId: 'tab-app-2025',
-    name: 'Immigration_Handbook_2025.epub',
-    fileType: 'epub',
-    fileSize: 32400,
-    url: 'https://cdn.jsdelivr.net/gh/mushishi78/epub-samples@master/accessible_epub_3/EPUB/',
-    hasFile: true,
-    status: 'approved', // GREEN
-    createdAt: '2025-01-20T10:00:00Z',
-    updatedAt: '2025-01-20T10:00:00Z',
-    description: 'Reference handbook e-book for client guidance.'
-  },
 
-  // Elena Rostova - Skilled Worker
+  // Elena Rostova - Skilled Worker (Client 2)
   {
     id: 'doc-elena-cos',
     clientId: 'client-elena-rostova',
     collectionId: 'tab-elena-worker',
+    folderId: 'f-elena-cos',
     name: 'Certificate_of_Sponsorship_Verified.pdf',
     fileType: 'pdf',
     fileSize: 14280,
@@ -333,28 +461,60 @@ export const initialDocuments: DocumentItem[] = [
     hasFile: true,
     status: 'approved',
     createdAt: '2024-06-20T10:00:00Z',
-    updatedAt: '2024-06-22T10:00:00Z'
+    updatedAt: '2024-06-22T10:00:00Z',
+    description: 'Verified Certificate of Sponsorship assigned by A-rated UK sponsor.'
+  },
+  {
+    id: 'doc-elena-contract',
+    clientId: 'client-elena-rostova',
+    collectionId: 'tab-elena-worker',
+    folderId: 'f-elena-cos',
+    name: 'Employment_Contract_Permanent.pdf',
+    fileType: 'pdf',
+    fileSize: 14280,
+    url: `data:application/pdf;base64,${samplePdfBase64}`,
+    hasFile: true,
+    status: 'approved',
+    createdAt: '2024-06-25T11:00:00Z',
+    updatedAt: '2024-06-25T11:00:00Z',
+    description: 'Signed full-time employment agreement meeting minimum salary thresholds.'
   },
   {
     id: 'doc-elena-medical',
     clientId: 'client-elena-rostova',
     collectionId: 'tab-elena-police',
+    folderId: 'f-elena-health',
     name: 'TB_Health_Screening_Report.pdf',
     fileType: 'pdf',
     fileSize: 0,
     url: '',
     hasFile: false,
     status: 'missing',
-    notes: 'Official clinic stamp required.',
+    notes: 'Official clinic stamp required from approved Home Office medical provider.',
     createdAt: '2024-08-10T10:00:00Z',
     updatedAt: '2024-08-10T10:00:00Z'
   },
+  {
+    id: 'doc-elena-police',
+    clientId: 'client-elena-rostova',
+    collectionId: 'tab-elena-police',
+    folderId: 'f-elena-health',
+    name: 'National_Police_Clearance_Original.pdf',
+    fileType: 'pdf',
+    fileSize: 14280,
+    url: `data:application/pdf;base64,${samplePdfBase64}`,
+    hasFile: true,
+    status: 'pending',
+    createdAt: '2024-08-15T15:00:00Z',
+    updatedAt: '2024-08-15T15:00:00Z'
+  },
 
-  // Tariq Mansoor - Commercial Lease
+  // Dr. Tariq Al-Mansoor - Commercial Lease (Client 3)
   {
     id: 'doc-tariq-lease',
     clientId: 'client-tariq-mansoor',
     collectionId: 'tab-tariq-lease',
+    folderId: 'f-tariq-lease',
     name: 'Commercial_Lease_Agreement_Draft_v3.pdf',
     fileType: 'pdf',
     fileSize: 14280,
@@ -362,6 +522,37 @@ export const initialDocuments: DocumentItem[] = [
     hasFile: true,
     status: 'pending',
     createdAt: '2025-03-10T10:00:00Z',
-    updatedAt: '2025-03-10T10:00:00Z'
+    updatedAt: '2025-03-10T10:00:00Z',
+    description: 'Draft commercial 10-year FRI lease agreement under review.'
+  },
+  {
+    id: 'doc-tariq-plans',
+    clientId: 'client-tariq-mansoor',
+    collectionId: 'tab-tariq-lease',
+    folderId: 'f-tariq-lease',
+    name: 'Clinic_Floor_Plan_Architectural.pdf',
+    fileType: 'pdf',
+    fileSize: 14280,
+    url: `data:application/pdf;base64,${samplePdfBase64}`,
+    hasFile: true,
+    status: 'approved',
+    createdAt: '2025-03-12T14:00:00Z',
+    updatedAt: '2025-03-12T14:00:00Z',
+    description: 'Architectural floor plans detailing surgical room layout.'
+  },
+  {
+    id: 'doc-tariq-deposit',
+    clientId: 'client-tariq-mansoor',
+    collectionId: 'tab-tariq-lease',
+    folderId: 'f-tariq-deposit',
+    name: 'Rent_Deposit_Deed_Signed.pdf',
+    fileType: 'pdf',
+    fileSize: 14280,
+    url: `data:application/pdf;base64,${samplePdfBase64}`,
+    hasFile: true,
+    status: 'approved',
+    createdAt: '2025-03-15T16:00:00Z',
+    updatedAt: '2025-03-15T16:00:00Z',
+    description: 'Executed Rent Deposit Deed with escrow account provisions.'
   }
 ];
