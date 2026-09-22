@@ -12,7 +12,9 @@ import {
   UploadCloud,
   Eye,
   CheckCircle2,
-  FolderOpen
+  FolderOpen,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { DocumentItem, CollectionTab, ShareScope, ShareRecord, SolicitorProfile, ShareType, DocumentFolder } from '../../types';
 import { syncShareToSupabase } from '../../lib/storage';
@@ -62,6 +64,25 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
+
+  // Expiry: 'never' | '7d' | '30d' | '90d' | 'custom'
+  const [expiryPreset, setExpiryPreset] = useState<'never' | '7d' | '30d' | '90d' | 'custom'>('never');
+  const [customExpiryDate, setCustomExpiryDate] = useState<string>(''); // ISO date string YYYY-MM-DD
+
+  const computedExpiresAt = useMemo((): string | undefined => {
+    const now = new Date();
+    if (expiryPreset === '7d') { now.setDate(now.getDate() + 7); return now.toISOString(); }
+    if (expiryPreset === '30d') { now.setDate(now.getDate() + 30); return now.toISOString(); }
+    if (expiryPreset === '90d') { now.setDate(now.getDate() + 90); return now.toISOString(); }
+    if (expiryPreset === 'custom' && customExpiryDate) {
+      const d = new Date(customExpiryDate);
+      d.setHours(23, 59, 59, 999);
+      return d.toISOString();
+    }
+    return undefined;
+  }, [expiryPreset, customExpiryDate]);
+
+
 
   // Count documents per folder for the folder dropdown
   const folderCounts = useMemo(() => {
@@ -191,6 +212,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         passcode: passcode.trim(),
         allowClientUpload: allowUpload,
         createdAt: new Date().toISOString(),
+        expiresAt: computedExpiresAt,
         ownerId: user.id,
         ownerEmail: user.email,
         companyName: user.companyName,
@@ -438,6 +460,49 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                   Client must enter this 4-digit PIN to open their portal.
                 </p>
               </div>
+
+              {/* 3. Link Expiry */}
+              <div>
+                <label className="block text-xs font-bold text-[#202124] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#1a73e8]" />
+                  3. Link Expiry
+                </label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {(['never', '7d', '30d', '90d', 'custom'] as const).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setExpiryPreset(preset)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                        expiryPreset === preset
+                          ? 'bg-[#1a73e8] text-white border-[#1a73e8]'
+                          : 'bg-white text-[#5f6368] border-[#dadce0] hover:border-[#1a73e8] hover:text-[#1a73e8]'
+                      }`}
+                    >
+                      {preset === 'never' ? '🔁 Never expires' : preset === '7d' ? '7 Days' : preset === '30d' ? '30 Days' : preset === '90d' ? '90 Days' : '📅 Custom date'}
+                    </button>
+                  ))}
+                </div>
+                {expiryPreset === 'custom' && (
+                  <div className="relative flex items-center mt-1">
+                    <Calendar className="w-4 h-4 text-[#5f6368] absolute left-3 pointer-events-none" />
+                    <input
+                      type="date"
+                      value={customExpiryDate}
+                      min={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => setCustomExpiryDate(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-sm outline-none transition-all text-[#202124]"
+                    />
+                  </div>
+                )}
+                {computedExpiresAt ? (
+                  <p className="text-[11px] text-[#ea4335] mt-1.5 font-semibold">
+                    ⏱ Link will expire on {new Date(computedExpiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-[#5f6368] mt-1.5">Link will remain active permanently unless deleted.</p>
+                )}
+              </div>
             </>
           ) : (
             /* Link Generated Screen */
@@ -496,6 +561,21 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                   View &amp; Upload
                 </span>
               </div>
+
+              {/* Expiry info on generated screen */}
+              {computedExpiresAt ? (
+                <div className="p-3 bg-[#fef7e0] border border-[#f9ab00]/30 rounded-2xl flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#f9ab00] flex-shrink-0" />
+                  <p className="text-xs text-[#7d5700] font-semibold">
+                    Expires: {new Date(computedExpiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-[#f1f3f4] border border-[#dadce0] rounded-2xl flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#5f6368] flex-shrink-0" />
+                  <p className="text-xs text-[#5f6368]">No expiry — link is permanent</p>
+                </div>
+              )}
             </div>
           )}
         </div>

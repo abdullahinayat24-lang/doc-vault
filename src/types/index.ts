@@ -147,13 +147,16 @@ export interface StaffMember {
   id: string;
   name: string;
   email: string;
-  username: string;
+  username: string; // kept for backward compat, email is now the login identifier
   password?: string;
   role: StaffRole;
   phone?: string;
   avatarColor?: string;
   assignedClientIds: string[];
   permissions: StaffPermissions;
+  inviteToken?: string;    // UUID token sent in invite link
+  inviteUsed?: boolean;    // true once staff has set their password
+  lastLoginAt?: string;    // ISO timestamp of last successful login
   createdAt: string;
   updatedAt?: string;
 }

@@ -1269,6 +1269,59 @@ export const deleteStaffMember = (id: string, solicitorId?: string) => {
   syncStaffToSupabase(staff, solicitorId).catch(() => {});
 };
 
+// Validate an invite token and return the staff member if found and unused
+export const validateStaffInviteToken = async (token: string): Promise<StaffMember | null> => {
+  // Try Supabase first
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('shared_links')
+        .select('payload')
+        .eq('id', 'staff_directory_main')
+        .maybeSingle();
+      if (data?.payload) {
+        const p = typeof data.payload === 'string' ? JSON.parse(data.payload) : data.payload;
+        if (Array.isArray(p?.staff)) {
+          const found = p.staff.find((s: StaffMember) => s.inviteToken === token);
+          if (found && !found.inviteUsed) return found;
+        }
+      }
+    } catch { /* fall through to localStorage */ }
+  }
+  // Fallback: check localStorage
+  const staff = getStaff();
+  const found = staff.find(s => s.inviteToken === token);
+  if (found && !found.inviteUsed) return found;
+  return null;
+};
+
+// Mark invite as used and save the staff member's new password
+export const consumeStaffInvite = async (token: string, newPassword: string): Promise<boolean> => {
+  const staff = getStaff();
+  const idx = staff.findIndex(s => s.inviteToken === token && !s.inviteUsed);
+  if (idx < 0) return false;
+  staff[idx] = {
+    ...staff[idx],
+    password: newPassword,
+    inviteUsed: true,
+    inviteToken: undefined,
+    updatedAt: new Date().toISOString()
+  };
+  localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
+  await syncStaffToSupabase(staff).catch(() => {});
+  return true;
+};
+
+// Record last login time for a staff member
+export const updateStaffLastLogin = (staffId: string, solicitorId?: string) => {
+  const staff = getStaff();
+  const idx = staff.findIndex(s => s.id === staffId);
+  if (idx < 0) return;
+  staff[idx] = { ...staff[idx], lastLoginAt: new Date().toISOString() };
+  localStorage.setItem(STAFF_KEY, JSON.stringify(staff));
+  syncStaffToSupabase(staff, solicitorId).catch(() => {});
+};
+
 
 export const getShares = (): ShareRecord[] => {
   const saved = localStorage.getItem(SHARES_KEY);

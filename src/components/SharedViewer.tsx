@@ -114,6 +114,40 @@ export const SharedViewer: React.FC<SharedViewerProps> = ({
     );
   }
 
+  // Check if the link has expired
+  const isExpired = shareRecord.expiresAt ? new Date(shareRecord.expiresAt) < new Date() : false;
+  if (isExpired) {
+    return (
+      <div className="min-h-screen bg-[#f8fafd] flex flex-col items-center justify-center p-6 text-center select-none">
+        <div className="w-16 h-16 rounded-2xl bg-[#fef7e0] border border-[#f9ab00]/30 shadow-sm flex items-center justify-center mb-4 text-[#f9ab00]">
+          <Lock className="w-8 h-8" />
+        </div>
+        {shareRecord.companyName && (
+          <p className="text-xs font-bold text-[#5f6368] uppercase tracking-widest mb-2">
+            {shareRecord.companyName}
+          </p>
+        )}
+        <h2 className="font-['Google_Sans',sans-serif] text-xl font-bold text-[#202124]">
+          This Link Has Expired
+        </h2>
+        <p className="text-sm text-[#5f6368] mt-1 max-w-sm">
+          This client portal link expired on{' '}
+          <strong>{new Date(shareRecord.expiresAt!).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
+          Please contact your solicitor for a new link.
+        </p>
+        {onBackToApp && (
+          <button
+            onClick={onBackToApp}
+            className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-[#1a73e8] text-white rounded-lg text-sm font-medium hover:bg-[#1557b0] transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Go to DocVault Home</span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   // Filter allowed documents with safe fallback
   const allowedDocuments: DocumentItem[] = useMemo(() => {
     let filtered: DocumentItem[] = [];

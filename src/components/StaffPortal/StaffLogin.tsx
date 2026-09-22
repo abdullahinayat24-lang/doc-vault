@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { 
   Users, 
   Lock, 
-  User, 
+  Mail, 
   ArrowRight, 
-  ShieldCheck, 
   Briefcase, 
   Eye, 
   EyeOff, 
@@ -12,7 +11,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { StaffMember } from '../../types';
-import { getStaff, fetchStaffFromSupabase } from '../../lib/storage';
+import { getStaff, fetchStaffFromSupabase, updateStaffLastLogin } from '../../lib/storage';
 
 interface StaffLoginProps {
   onStaffLogin: (staffMember: StaffMember) => void;
@@ -27,7 +26,7 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
   companyName = 'DocVault Legal Chambers',
   companyLogo
 }) => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,35 +38,47 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
     setIsLoading(true);
 
     try {
-      // First try fetching latest staff from Supabase in case changed on another device
+      // Always try Supabase first so the latest staff directory is used
       const remoteStaff = await fetchStaffFromSupabase();
       const staffList = remoteStaff && remoteStaff.length > 0 ? remoteStaff : getStaff();
 
-      const cleanUser = username.trim().toLowerCase();
+      const cleanEmail = email.trim().toLowerCase();
       const cleanPass = password.trim();
 
+      // Match by email (primary) or username / name as fallback for legacy accounts
       const match = staffList.find(
         (s) =>
-          (s.username && s.username.toLowerCase() === cleanUser) ||
-          s.email.toLowerCase() === cleanUser ||
-          s.name.toLowerCase() === cleanUser
+          s.email.toLowerCase() === cleanEmail ||
+          (s.username && s.username.toLowerCase() === cleanEmail) ||
+          s.name.toLowerCase() === cleanEmail
       );
 
       if (!match) {
-        setError('Staff username not recognized. Please contact your senior solicitor.');
+        setError('Email address not found. Please contact your senior solicitor.');
+        setIsLoading(false);
+        return;
+      }
+
+      // If invite is pending (not yet used), don't allow login yet
+      if (match.inviteToken && !match.inviteUsed) {
+        setError('Account not yet activated. Please check your invite email and set a password first.');
         setIsLoading(false);
         return;
       }
 
       if (match.password && match.password !== cleanPass) {
-        setError('Incorrect password for this staff member.');
+        setError('Incorrect password. Please try again or contact your firm admin.');
         setIsLoading(false);
         return;
       }
 
-      // Success
-      sessionStorage.setItem('docvault_staff_session', JSON.stringify(match));
-      onStaffLogin(match);
+      // Record last login timestamp
+      updateStaffLastLogin(match.id);
+
+      // Success — update session with current timestamp
+      const sessionMember = { ...match, lastLoginAt: new Date().toISOString() };
+      sessionStorage.setItem('docvault_staff_session', JSON.stringify(sessionMember));
+      onStaffLogin(sessionMember);
     } catch (err) {
       console.warn('Staff login note:', err);
       setError('An error occurred during authentication. Please retry.');
@@ -113,7 +124,7 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
           <div className="text-center mb-2">
             <h2 className="text-sm font-bold text-[#202124]">Staff Member Sign In</h2>
             <p className="text-xs text-[#5f6368]">
-              Sign in with your assigned firm username and password to access your cases
+              Sign in with your work email and password to access your assigned cases
             </p>
           </div>
 
@@ -126,17 +137,17 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
 
           <div>
             <label className="block text-xs font-bold text-[#202124] uppercase tracking-wider mb-1.5">
-              Staff Username or Email
+              Email Address
             </label>
             <div className="relative flex items-center">
-              <User className="w-4 h-4 text-[#5f6368] absolute left-3" />
+              <Mail className="w-4 h-4 text-[#5f6368] absolute left-3" />
               <input
-                type="text"
+                type="email"
                 required
                 autoFocus
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. sarah, david, amina"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g. sarah@lawfirm.co.uk"
                 className="w-full pl-9 pr-4 py-2.5 bg-[#f8fafd] border border-[#dadce0] focus:bg-white focus:border-[#1a73e8] rounded-xl text-sm text-[#202124] outline-none transition-all"
               />
             </div>
@@ -168,7 +179,7 @@ export const StaffLogin: React.FC<StaffLoginProps> = ({
 
           <button
             type="submit"
-            disabled={isLoading || !username.trim() || !password.trim()}
+            disabled={isLoading || !email.trim() || !password.trim()}
             className="w-full py-2.5 px-4 bg-[#1a73e8] hover:bg-[#1557b0] disabled:opacity-50 text-white font-bold text-sm rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 mt-2"
           >
             {isLoading ? (

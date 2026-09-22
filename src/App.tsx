@@ -72,6 +72,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { ChangePinModal } from './components/Modals/ChangePinModal';
 import { DiscountKeysModal } from './components/Modals/DiscountKeysModal';
 import { StaffLogin } from './components/StaffPortal/StaffLogin';
+import { StaffInviteSetup } from './components/StaffPortal/StaffInviteSetup';
 import { StaffManagementModal } from './components/Modals/StaffManagementModal';
 import { UploadProgressToast, UploadProgressInfo } from './components/UploadProgressToast';
 import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
@@ -121,6 +122,12 @@ export function App() {
   const [portalParam, setPortalParam] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('portal');
+  });
+
+  // Staff Invite Token (?staffInvite=TOKEN) — for new staff setting password
+  const [staffInviteToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('staffInvite');
   });
 
   // Active Staff Session (persisted in sessionStorage)
@@ -1483,6 +1490,22 @@ export function App() {
         onBackToApp={() => {
           window.history.pushState({}, '', window.location.pathname);
           setShareParam(null);
+        }}
+      />
+    );
+  }
+
+  // If ?staffInvite=TOKEN is in URL, show the staff invite setup (set password) screen
+  if (staffInviteToken) {
+    return (
+      <StaffInviteSetup
+        token={staffInviteToken}
+        onSetupComplete={() => {
+          // Redirect to staff portal login
+          const url = new URL(window.location.href);
+          url.searchParams.delete('staffInvite');
+          url.searchParams.set('portal', 'staff');
+          window.location.replace(url.toString());
         }}
       />
     );
