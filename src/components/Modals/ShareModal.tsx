@@ -57,8 +57,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   if (!isOpen) return null;
 
-  // ★ Instant link generation: link is displayed immediately
-  const handleCreateShare = () => {
+  // ★ Instant reliable cross-device link generation
+  const handleCreateShare = async () => {
     try {
       setIsGenerating(true);
       const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
@@ -101,8 +101,47 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         updatedAt: d.updatedAt || new Date().toISOString()
       }));
 
+      // Post to Bytebin cloud store to obtain persistent cross-device key
+      let finalKey = shareId;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const bytebinRes = await fetch('https://bytebin.lucko.me/post', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            share: {
+              id: shareId,
+              title,
+              shareType,
+              scope,
+              targetIds,
+              passcode: passcode.trim(),
+              allowClientUpload: shareType === 'uploader',
+              createdAt: new Date().toISOString(),
+              ownerId: user.id,
+              ownerEmail: user.email,
+              companyName: user.companyName,
+              companyLogo: user.companyLogo
+            },
+            docs: payloadDocs,
+            folders: targetFolders
+          })
+        });
+        clearTimeout(timeoutId);
+        if (bytebinRes.ok) {
+          const bData = await bytebinRes.json();
+          if (bData && bData.key) {
+            finalKey = bData.key;
+          }
+        }
+      } catch (bErr) {
+        console.warn('Bytebin cloud upload note:', bErr);
+      }
+
       const newRecord: ShareRecord = {
-        id: shareId,
+        id: finalKey,
         title,
         shareType,
         scope,
@@ -125,28 +164,16 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         console.warn('Local share save note:', saveErr);
       }
 
+      // Sync to Supabase with finalKey
+      if (isSupabaseConfigured()) {
+        syncShareToSupabase(newRecord, targetDocs, targetFolders).catch(() => {});
+      }
+
       const baseUrl = `${window.location.origin}${window.location.pathname}`;
-      const cleanShortUrl = `${baseUrl}?share=${shareId}`;
+      const cleanShortUrl = `${baseUrl}?share=${finalKey}`;
 
-      // ★ INSTANT: Link appears immediately with zero waiting
       setGeneratedLink(cleanShortUrl);
-      setCloudSyncStatus('syncing');
-
-      // Background cloud sync — completely non-blocking
-      (async () => {
-        try {
-          if (isSupabaseConfigured()) {
-            await syncShareToSupabase(newRecord, targetDocs, targetFolders).catch(() => {});
-          }
-          await fetch('https://bytebin.lucko.me/post', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payloadToSend)
-          }).catch(() => {});
-        } finally {
-          setCloudSyncStatus('synced');
-        }
-      })();
+      setCloudSyncStatus('synced');
     } catch (err) {
       console.error('Share generation error:', err);
     } finally {

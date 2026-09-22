@@ -22,11 +22,68 @@ const SHARES_KEY = 'docvault_shares';
 const PROFILE_KEY = 'docvault_solicitor_profile';
 const PIN_KEY = 'docvault_lock_pin';
 
+export const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    try {
+      return crypto.randomUUID();
+    } catch {}
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+export const isUUID = (str?: string): boolean => {
+  return Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
+};
+
+export const toDeterministicUUID = (str?: string): string => {
+  if (!str) return generateUUID();
+  if (isUUID(str)) return str;
+  let hash1 = 0xdeadbeef;
+  let hash2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    hash1 = Math.imul(hash1 ^ ch, 2654435761);
+    hash2 = Math.imul(hash2 ^ ch, 1597334677);
+  }
+  hash1 = (hash1 ^ (hash1 >>> 16)) >>> 0;
+  hash2 = (hash2 ^ (hash2 >>> 16)) >>> 0;
+  const p1 = hash1.toString(16).padStart(8, '0');
+  const p2 = hash2.toString(16).padStart(8, '0');
+  return `${p1.slice(0, 8)}-${p2.slice(0, 4)}-4000-8000-${p1}${p2.slice(4, 8)}`.toLowerCase();
+};
+
+export const ensureUserProfileInSupabase = async (user: SolicitorProfile) => {
+  if (!supabase || !user?.id || !isUUID(user.id)) return;
+  try {
+    const { error } = await supabase.from('profiles').upsert({
+      id: user.id,
+      email: user.email || '',
+      display_name: user.displayName || user.email?.split('@')[0] || 'Solicitor',
+      company_name: user.companyName || 'My Legal Practice',
+      phone: user.phone || null,
+      pin_code: user.pinCode || '1234'
+    }, { onConflict: 'id' });
+    if (error) {
+      console.warn('ensureUserProfile note:', error.message);
+    }
+  } catch (err) {
+    console.warn('ensureUserProfile exception:', err);
+  }
+};
+
 export const getClients = (): ClientRecord[] => {
   const saved = localStorage.getItem(CLIENTS_KEY);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const parsed: ClientRecord[] = JSON.parse(saved);
+      return parsed.map((c) => ({
+        ...c,
+        id: toDeterministicUUID(c.id)
+      }));
     } catch {
       // ignore
     }
@@ -34,19 +91,214 @@ export const getClients = (): ClientRecord[] => {
   return []; // Empty by default
 };
 
-export const saveClients = (clients: ClientRecord[]) => {
+export const syncClientToSupabase = async (client: ClientRecord, solicitorId?: string): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id;
+
+    const safeClientId = toDeterministicUUID(client.id);
+
+    const payload: any = {
+      id: safeClientId,
+      name: client.name || 'Unnamed Client',
+      phone: client.phone || '0000000000',
+      email: client.email || '',
+      came_for: client.cameFor || 'General Case',
+      priority: client.priority || 'normal',
+      total_asking_amount: client.totalAskingAmount || 0,
+      total_doc_cost: client.totalDocCost || 0,
+      amount_paid: client.amountPaid || 0,
+      visit_count: client.visitCount || 1,
+      first_visit_date: client.firstVisitDate || new Date().toISOString(),
+      last_visit_date: client.lastVisitDate || new Date().toISOString(),
+      notes: client.notes || ''
+    };
+
+    if (isUUID(resolvedSolicitorId)) {
+      payload.solicitor_id = resolvedSolicitorId;
+    }
+
+    const { error } = await supabase.from('clients').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('Supabase client sync note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase client sync exception:', err);
+    return false;
+  }
+};
+
+export const deleteClientFromSupabase = async (clientId: string): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const safeId = toDeterministicUUID(clientId);
+    const { error } = await supabase.from('clients').delete().eq('id', safeId);
+    if (error) {
+      console.warn('deleteClientFromSupabase note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('deleteClientFromSupabase exception:', err);
+    return false;
+  }
+};
+
+export const syncClientsToSupabase = async (clients: ClientRecord[], solicitorId?: string) => {
+  if (!supabase) return;
+  for (const c of clients) {
+    await syncClientToSupabase(c, solicitorId).catch(() => {});
+  }
+};
+
+export const fetchClientsFromSupabase = async (solicitorId?: string): Promise<ClientRecord[] | null> => {
+  if (!supabase) return null;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedId = solicitorId || authUser?.id;
+
+    let query = supabase.from('clients').select('*');
+    if (isUUID(resolvedId)) {
+      query = query.eq('solicitor_id', resolvedId);
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) return null;
+
+    return data.map((c: any): ClientRecord => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone || '',
+      email: c.email || '',
+      cameFor: c.came_for || 'General Case',
+      priority: c.priority || 'normal',
+      totalDocCost: parseFloat(c.total_doc_cost || '0'),
+      totalAskingAmount: parseFloat(c.total_asking_amount || '0'),
+      amountPaid: parseFloat(c.amount_paid || '0'),
+      firstVisitDate: c.first_visit_date || new Date().toISOString(),
+      lastVisitDate: c.last_visit_date || new Date().toISOString(),
+      visitCount: c.visit_count || 1,
+      notes: c.notes || undefined,
+      createdAt: c.created_at || new Date().toISOString(),
+      updatedAt: c.updated_at || new Date().toISOString()
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch clients from Supabase:', err);
+    return null;
+  }
+};
+
+export const syncTabToSupabase = async (tab: CollectionTab, solicitorId?: string): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedSolicitorId = solicitorId || authUser?.id;
+
+    const safeTabId = toDeterministicUUID(tab.id);
+    const safeClientId = tab.clientId ? toDeterministicUUID(tab.clientId) : undefined;
+
+    const payload: any = {
+      id: safeTabId,
+      name: tab.name || 'Case Application',
+      case_number: tab.caseNumber || null,
+      icon: tab.icon || 'briefcase',
+      is_default: tab.isDefault || false
+    };
+
+    if (isUUID(resolvedSolicitorId)) {
+      payload.solicitor_id = resolvedSolicitorId;
+    }
+    if (safeClientId && isUUID(safeClientId)) {
+      payload.client_id = safeClientId;
+    }
+
+    const { error } = await supabase.from('collections').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('Supabase tab sync note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase tab sync exception:', err);
+    return false;
+  }
+};
+
+export const deleteTabFromSupabase = async (tabId: string): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const safeId = toDeterministicUUID(tabId);
+    const { error } = await supabase.from('collections').delete().eq('id', safeId);
+    if (error) {
+      console.warn('deleteTabFromSupabase note:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('deleteTabFromSupabase exception:', err);
+    return false;
+  }
+};
+
+export const syncTabsToSupabase = async (tabs: CollectionTab[], solicitorId?: string) => {
+  if (!supabase) return;
+  for (const t of tabs) {
+    await syncTabToSupabase(t, solicitorId).catch(() => {});
+  }
+};
+
+export const fetchTabsFromSupabase = async (solicitorId?: string): Promise<CollectionTab[] | null> => {
+  if (!supabase) return null;
+  try {
+    const authUser = (await supabase.auth.getUser())?.data?.user;
+    const resolvedId = solicitorId || authUser?.id;
+
+    let query = supabase.from('collections').select('*');
+    if (isUUID(resolvedId)) {
+      query = query.eq('solicitor_id', resolvedId);
+    }
+
+    const { data, error } = await query;
+    if (error || !data || data.length === 0) return null;
+
+    return data.map((t: any): CollectionTab => ({
+      id: t.id,
+      clientId: t.client_id || '',
+      name: t.name,
+      caseNumber: t.case_number || undefined,
+      icon: t.icon || 'briefcase',
+      isDefault: t.is_default || false,
+      createdAt: t.created_at || new Date().toISOString(),
+      updatedAt: t.updated_at || new Date().toISOString()
+    }));
+  } catch (err) {
+    console.warn('Failed to fetch tabs from Supabase:', err);
+    return null;
+  }
+};
+
+export const saveClients = (clients: ClientRecord[], solicitorId?: string) => {
   try {
     localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
   } catch (err) {
     console.warn('saveClients quota error:', err);
   }
+  syncClientsToSupabase(clients, solicitorId).catch(() => {});
 };
 
 export const getInitialTabs = (): CollectionTab[] => {
   const saved = localStorage.getItem(TABS_KEY);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const parsed: CollectionTab[] = JSON.parse(saved);
+      return parsed.map((t) => ({
+        ...t,
+        id: toDeterministicUUID(t.id),
+        clientId: t.clientId ? toDeterministicUUID(t.clientId) : ''
+      }));
     } catch {
       // ignore
     }
@@ -54,12 +306,13 @@ export const getInitialTabs = (): CollectionTab[] => {
   return []; // Empty by default
 };
 
-export const saveTabs = (tabs: CollectionTab[]) => {
+export const saveTabs = (tabs: CollectionTab[], solicitorId?: string) => {
   try {
     localStorage.setItem(TABS_KEY, JSON.stringify(tabs));
   } catch (err) {
     console.warn('saveTabs quota error:', err);
   }
+  syncTabsToSupabase(tabs, solicitorId).catch(() => {});
 };
 
 export const getInitialFolders = (): DocumentFolder[] => {
@@ -86,29 +339,17 @@ export const getInitialDocuments = (): DocumentItem[] => {
   const saved = localStorage.getItem(DOCS_KEY);
   if (saved) {
     try {
-      return JSON.parse(saved);
+      const parsed: DocumentItem[] = JSON.parse(saved);
+      return parsed.map((d) => ({
+        ...d,
+        id: toDeterministicUUID(d.id),
+        clientId: d.clientId ? toDeterministicUUID(d.clientId) : undefined
+      }));
     } catch {
       // ignore
     }
   }
   return []; // Empty by default
-};
-
-export const generateUUID = (): string => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    try {
-      return crypto.randomUUID();
-    } catch {}
-  }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-};
-
-export const isUUID = (str?: string): boolean => {
-  return Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str));
 };
 
 /**
@@ -453,23 +694,38 @@ export const syncShareToSupabase = async (
   if (!supabase) return;
   try {
     const payloadData = share.payload || (docs ? { docs, folders: folders || [] } : undefined);
+    const targetIds = Array.isArray(share.targetIds) && share.targetIds.length > 0
+      ? share.targetIds
+      : ['all'];
+
+    let safeScope = share.scope || 'collection';
+    if (!['collection', 'single', 'multiple'].includes(safeScope)) {
+      safeScope = 'collection';
+    }
+
     const upsertObj: any = {
       id: share.id,
-      title: share.title,
-      share_type: share.shareType,
-      scope: share.scope,
-      target_ids: share.targetIds,
-      passcode: share.passcode,
+      title: share.title || 'Shared Documents',
+      share_type: share.shareType || 'viewer',
+      scope: safeScope,
+      target_ids: targetIds,
+      passcode: share.passcode || '1234',
       allow_client_upload: share.allowClientUpload ?? true,
-      created_at: share.createdAt
+      created_at: share.createdAt || new Date().toISOString()
     };
-    if (payloadData) {
-      upsertObj.payload = payloadData;
-    }
-    if (share.ownerId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(share.ownerId)) {
+    if (share.ownerId && isUUID(share.ownerId)) {
       upsertObj.solicitor_id = share.ownerId;
     }
-    await supabase.from('shared_links').upsert(upsertObj);
+
+    if (payloadData) {
+      const { error } = await supabase.from('shared_links').upsert({ ...upsertObj, payload: payloadData });
+      if (!error) return;
+      if (error.message?.includes('payload')) {
+        await supabase.from('shared_links').upsert(upsertObj);
+      }
+    } else {
+      await supabase.from('shared_links').upsert(upsertObj);
+    }
   } catch (err) {
     console.warn('Supabase share sync note:', err);
   }

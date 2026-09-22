@@ -32,6 +32,13 @@ import {
   idbGetDocuments,
   fetchShareFromSupabase,
   fetchUserDocumentsFromSupabase,
+  fetchClientsFromSupabase,
+  syncClientToSupabase,
+  deleteClientFromSupabase,
+  fetchTabsFromSupabase,
+  syncTabToSupabase,
+  deleteTabFromSupabase,
+  ensureUserProfileInSupabase,
   generateUUID,
   uploadFileOnline,
   syncSingleDocumentToSupabase,
@@ -135,34 +142,46 @@ export function App() {
     const local = getShares().find((s) => s.id === shareParam);
     if (local) return;
 
-    // 1. First fetch directly from Supabase (fast, reliable, within our own database)
-    fetchShareFromSupabase(shareParam)
-      .then((supabaseData) => {
-        if (supabaseData && supabaseData.share) {
-          setCloudShareData(supabaseData);
-          saveShare(supabaseData.share);
-          return;
-        }
+    setIsLoadingCloudShare(true);
+    let resolved = false;
 
-        // 2. Fallback to bytebin if not found in Supabase
-        return fetch(`https://bytebin.lucko.me/${shareParam}`)
-          .then((res) => {
-            if (!res.ok) throw new Error('Not found in cloud store');
-            return res.json();
-          })
-          .then((data) => {
-            if (data && data.share) {
-              setCloudShareData(data);
-              saveShare(data.share);
-            }
-          });
+    // 1. Fetch from Bytebin (global instant CDN)
+    const p1 = fetch(`https://bytebin.lucko.me/${shareParam}`)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && (data.share || data.title)) {
+          const share = data.share || data;
+          const fixedShare: ShareRecord = { ...share, id: shareParam };
+          const payload = {
+            share: fixedShare,
+            docs: data.docs || [],
+            folders: data.folders || []
+          };
+          if (!resolved) {
+            resolved = true;
+            setCloudShareData(payload);
+            saveShare(fixedShare);
+          }
+        }
       })
-      .catch((err) => {
-        console.warn('Could not fetch cloud share record:', err);
+      .catch(() => {});
+
+    // 2. Fetch from Supabase in parallel
+    const p2 = fetchShareFromSupabase(shareParam)
+      .then((supabaseData) => {
+        if (supabaseData && supabaseData.share && !resolved) {
+          resolved = true;
+          const fixedShare = { ...supabaseData.share, id: shareParam };
+          setCloudShareData({ ...supabaseData, share: fixedShare });
+          saveShare(fixedShare);
+        }
       })
-      .finally(() => {
-        setIsLoadingCloudShare(false);
-      });
+      .catch(() => {});
+
+    Promise.allSettled([p1, p2]).finally(() => {
+      setIsLoadingCloudShare(false);
+    });
   }, [shareParam, sharedPayload]);
 
   // Main state - null profile by default prompts Create Account / Sign In
@@ -228,9 +247,12 @@ export function App() {
   const handleSaveEditClient = (updated: ClientRecord) => {
     setClients((prev) => {
       const newList = prev.map((c) => c.id === updated.id ? updated : c);
-      saveClients(newList);
+      saveClients(newList, user?.id);
       return newList;
     });
+    if (user?.id) {
+      syncClientToSupabase(updated, user.id);
+    }
     setIsEditClientOpen(false);
     setEditingClient(null);
   };
@@ -344,6 +366,59 @@ export function App() {
     });
 
     if (user?.id) {
+      // 1. Ensure user profile exists in Supabase so foreign key constraints succeed
+      ensureUserProfileInSupabase(user).catch(() => {});
+
+      // 2. Hydrate clients from Supabase cloud
+      fetchClientsFromSupabase(user.id).then((cloudClients) => {
+        if (cloudClients && cloudClients.length > 0) {
+          setClients((prevLocal) => {
+            const map = new Map<string, ClientRecord>();
+            cloudClients.forEach((c) => map.set(c.id, c));
+            prevLocal.forEach((lc) => {
+              if (!map.has(lc.id)) {
+                map.set(lc.id, lc);
+                syncClientToSupabase(lc, user.id);
+              }
+            });
+            const merged = Array.from(map.values());
+            saveClients(merged, user.id);
+            return merged;
+          });
+        } else {
+          // Cloud has 0 clients: push existing local clients to Supabase
+          setClients((currentClients) => {
+            currentClients.forEach((c) => syncClientToSupabase(c, user.id));
+            return currentClients;
+          });
+        }
+      }).catch((err) => console.warn('Supabase initial clients load note:', err));
+
+      // 3. Hydrate tabs from Supabase cloud
+      fetchTabsFromSupabase(user.id).then((cloudTabs) => {
+        if (cloudTabs && cloudTabs.length > 0) {
+          setTabs((prevLocal) => {
+            const map = new Map<string, CollectionTab>();
+            cloudTabs.forEach((t) => map.set(t.id, t));
+            prevLocal.forEach((lt) => {
+              if (!map.has(lt.id)) {
+                map.set(lt.id, lt);
+                syncTabToSupabase(lt, user.id);
+              }
+            });
+            const merged = Array.from(map.values());
+            saveTabs(merged, user.id);
+            return merged;
+          });
+        } else {
+          setTabs((currentTabs) => {
+            currentTabs.forEach((t) => syncTabToSupabase(t, user.id));
+            return currentTabs;
+          });
+        }
+      }).catch((err) => console.warn('Supabase initial tabs load note:', err));
+
+      // 4. Hydrate documents from Supabase cloud
       fetchUserDocumentsFromSupabase(user.id).then((cloudDocs) => {
         if (cloudDocs && cloudDocs.length > 0) {
           setDocuments((prev) => {
@@ -367,14 +442,14 @@ export function App() {
     }
   }, [user?.id]);
 
-  // Sync to localStorage
+  // Sync to localStorage and Supabase cloud
   useEffect(() => {
-    saveClients(clients);
-  }, [clients]);
+    saveClients(clients, user?.id);
+  }, [clients, user?.id]);
 
   useEffect(() => {
-    saveTabs(tabs);
-  }, [tabs]);
+    saveTabs(tabs, user?.id);
+  }, [tabs, user?.id]);
 
   useEffect(() => {
     if (!isHydrated.current) return;
@@ -523,11 +598,16 @@ export function App() {
     };
     setTabs((prev) => [...prev, initialTab]);
     handleSelectClient(newClient);
+    if (user?.id) {
+      syncClientToSupabase(newClient, user.id);
+      syncTabToSupabase(initialTab, user.id);
+    }
   };
 
   const handleDeleteClient = (clientId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Delete this client record and associated case documents?')) {
+      deleteClientFromSupabase(clientId);
       setClients((prev) => prev.filter((c) => c.id !== clientId));
       setTabs((prev) => prev.filter((t) => t.clientId !== clientId));
       setDocuments((prev) => prev.filter((d) => d.clientId !== clientId));
@@ -556,17 +636,28 @@ export function App() {
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
     setSelectedDocIds([]);
+    if (user?.id) {
+      syncTabToSupabase(newTab, user.id);
+    }
   };
 
   const handleRenameTab = (tabId: string, newName: string) => {
     setTabs((prev) =>
-      prev.map((t) => (t.id === tabId ? { ...t, name: newName, updatedAt: new Date().toISOString() } : t))
+      prev.map((t) => {
+        if (t.id === tabId) {
+          const updated = { ...t, name: newName, updatedAt: new Date().toISOString() };
+          if (user?.id) syncTabToSupabase(updated, user.id);
+          return updated;
+        }
+        return t;
+      })
     );
   };
 
   const handleDeleteTab = (tabId: string) => {
     if (clientTabs.length <= 1) return;
     if (confirm('Delete this tab and its documents?')) {
+      deleteTabFromSupabase(tabId);
       setTabs((prev) => prev.filter((t) => t.id !== tabId));
       setDocuments((prev) => prev.filter((d) => d.collectionId !== tabId));
       const remaining = clientTabs.filter((t) => t.id !== tabId);

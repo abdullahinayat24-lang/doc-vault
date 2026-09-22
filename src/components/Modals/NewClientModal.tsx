@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, UserPlus, Phone, Mail, FileText, Euro, AlertCircle, Users } from 'lucide-react';
 import { ClientRecord, ClientPriority, StaffMember } from '../../types';
+import { generateUUID } from '../../lib/storage';
 
 interface NewClientModalProps {
   isOpen: boolean;
@@ -32,7 +33,7 @@ export const NewClientModal: React.FC<NewClientModalProps> = ({
     if (!name.trim()) return;
 
     const newClient: ClientRecord = {
-      id: 'client-' + Math.random().toString(36).substring(2, 9),
+      id: generateUUID(),
       name: name.trim(),
       phone: phone.trim() || '+44 7000 000000',
       email: email.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}@example.com`,
