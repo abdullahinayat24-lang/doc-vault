@@ -64,6 +64,9 @@ interface HeaderProps {
   deletedCount?: number;
   onOpenAuditLog?: () => void;
   onDownloadBackup?: () => void;
+  onExportBundleIndexPdf?: () => void;
+  onPrintBundleIndex?: () => void;
+  onOpenCommandPalette?: () => void;
 }
 
 
@@ -99,7 +102,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenRecycleBin,
   deletedCount,
   onOpenAuditLog,
-  onDownloadBackup
+  onDownloadBackup,
+  onExportBundleIndexPdf,
+  onPrintBundleIndex,
+  onOpenCommandPalette
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -197,9 +203,19 @@ export const Header: React.FC<HeaderProps> = ({
           {searchQuery && (
             <button
               onClick={() => onSearchChange('')}
-              className="p-1 text-[#5f6368] hover:text-[#202124] hover:bg-black/5 rounded-full transition-colors"
+              className="p-1 text-[#5f6368] hover:text-[#202124] hover:bg-black/5 rounded-full transition-colors mr-1"
             >
               <X className="w-4 h-4" />
+            </button>
+          )}
+          {onOpenCommandPalette && (
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white border border-[#dadce0] text-[10px] font-mono font-bold text-[#5f6368] hover:text-[#1a73e8] hover:border-[#1a73e8] transition-colors shadow-2xs flex-shrink-0"
+              title="Open Command Navigator (Ctrl+K)"
+            >
+              <span>Ctrl+K</span>
             </button>
           )}
         </div>
@@ -372,6 +388,32 @@ export const Header: React.FC<HeaderProps> = ({
                       >
                         <Printer className="w-4 h-4 text-[#137333]" />
                         <span>Print All Documents</span>
+                      </button>
+                    )}
+                    {onExportBundleIndexPdf && (
+                      <button
+                        onClick={() => {
+                          onExportBundleIndexPdf();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#e8f0fe] text-[#1a73e8] flex items-center gap-2.5 transition-colors font-semibold"
+                        title="Generate official legal table of contents index for court or immigration bundles"
+                      >
+                        <FileText className="w-4 h-4 text-[#1a73e8]" />
+                        <span>Generate Bundle Index (PDF)</span>
+                      </button>
+                    )}
+                    {onPrintBundleIndex && (
+                      <button
+                        onClick={() => {
+                          onPrintBundleIndex();
+                          setShowExportMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#e8f0fe] text-[#202124] flex items-center gap-2.5 transition-colors"
+                        title="Print Court / Home Office Evidence Bundle Table of Contents"
+                      >
+                        <Printer className="w-4 h-4 text-[#5f6368]" />
+                        <span>Print Bundle Table of Contents</span>
                       </button>
                     )}
                   </div>

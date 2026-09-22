@@ -89,8 +89,10 @@ import { StaffInviteSetup } from './components/StaffPortal/StaffInviteSetup';
 import { StaffManagementModal } from './components/Modals/StaffManagementModal';
 import { RecycleBinModal } from './components/Modals/RecycleBinModal';
 import { AuditLogModal } from './components/Modals/AuditLogModal';
+import { CommandPalette } from './components/CommandPalette';
 import { UploadProgressToast, UploadProgressInfo } from './components/UploadProgressToast';
 import { printMultipleDocuments } from './lib/printUtils';
+import { exportBundleIndexPdf, printBundleIndex } from './lib/bundleUtils';
 import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
 
 
@@ -336,6 +338,19 @@ export function App() {
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState<boolean>(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => getAuditLogs());
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+
+  // Global shortcut for Command Palette (Ctrl+K / Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Soft-deleted documents in Recycle Bin
   const deletedDocuments = useMemo(() => {
@@ -1856,6 +1871,15 @@ export function App() {
         deletedCount={deletedDocuments.length}
         onOpenAuditLog={() => setIsAuditLogOpen(true)}
         onDownloadBackup={generateFullFirmBackup}
+        onExportBundleIndexPdf={() => {
+          if (!activeTab) return;
+          exportBundleIndexPdf(selectedClient, activeTab, tabDocuments, folders, effectiveUser);
+        }}
+        onPrintBundleIndex={() => {
+          if (!activeTab) return;
+          printBundleIndex(selectedClient, activeTab, tabDocuments, folders, effectiveUser);
+        }}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
       />
 
       {/* LEVEL 1: Main Company Page & Clients Directory */}
@@ -2165,6 +2189,31 @@ export function App() {
           clearAuditLogs();
           setAuditLogs([]);
         }}
+      />
+
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        clients={visibleClients}
+        documents={documents}
+        tabs={tabs}
+        solicitor={effectiveUser}
+        onSelectClient={(client) => {
+          handleSelectClient(client);
+        }}
+        onOpenNewClient={() => {
+          if (currentStaffSession && currentStaffSession.permissions?.canEdit === false) {
+            alert('Your staff account does not have permission to add new client cases.');
+            return;
+          }
+          setIsNewClientOpen(true);
+        }}
+        onOpenLetterhead={() => setIsLetterheadOpen(true)}
+        onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+        onOpenAuditLog={() => setIsAuditLogOpen(true)}
+        onDownloadBackup={generateFullFirmBackup}
+        onLockSession={() => setIsLocked(true)}
+        onOpenPricing={() => setIsPricingOpen(true)}
       />
 
       <UploadProgressToast progress={uploadProgress} />
