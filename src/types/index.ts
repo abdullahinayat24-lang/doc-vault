@@ -77,6 +77,16 @@ export interface DocumentPage {
   content?: string; // Editable rich text / HTML / raw text
 }
 
+export interface DocumentVersion {
+  versionNumber: number;
+  url: string;
+  fileSize: number;
+  fileType: FileType;
+  uploadedBy?: 'solicitor' | 'client';
+  uploadedAt: string;
+  notes?: string;
+}
+
 export interface DocumentItem {
   id: string;
   clientId?: string;
@@ -97,6 +107,20 @@ export interface DocumentItem {
   description?: string;
   uploadedBy?: 'solicitor' | 'client';
   pages?: DocumentPage[]; // Multi-page / multi-sided support (e.g. Front & Back)
+  versions?: DocumentVersion[]; // Legal version history (v1, v2, v3...)
+  isDeleted?: boolean; // Soft delete / Recycle bin
+  deletedAt?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'VERSION_UPLOAD' | 'SHARE_CREATE' | 'SHARE_REVOKE' | 'STAFF_LOGIN' | 'BACKUP_EXPORT';
+  entityType: 'document' | 'client' | 'share' | 'staff' | 'backup';
+  entityId?: string;
+  entityName?: string;
+  performedBy: string;
+  details?: string;
 }
 
 export type ShareScope = 'single' | 'multiple' | 'collection' | 'folder';

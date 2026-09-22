@@ -29,7 +29,8 @@ import {
   FileText,
   ChevronDown,
   Image as ImageIcon,
-  Printer
+  Printer,
+  Clock
 } from 'lucide-react';
 import { DocumentItem, DocumentStatus, SolicitorProfile } from '../../types';
 import { printDocument } from '../../lib/printUtils';
@@ -88,6 +89,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [isEditingName, setIsEditingName] = useState<boolean>(false);
   const [nameInput, setNameInput] = useState<string>('');
   const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+  const [showVersionHistory, setShowVersionHistory] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const addPageInputRef = useRef<HTMLInputElement>(null);
@@ -326,6 +328,71 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               >
                 <Edit2 className="w-3.5 h-3.5" />
               </button>
+            )}
+
+            {/* Version History Pill & Popover */}
+            {document.versions && document.versions.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowVersionHistory(!showVersionHistory)}
+                  className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f0fe] text-[#1a73e8] border border-[#d2e3fc] hover:bg-[#d2e3fc] flex items-center gap-1 transition-colors flex-shrink-0"
+                  title="View version history of this document"
+                >
+                  <Clock className="w-3 h-3" />
+                  <span>v{(document.versions.length) + 1}</span>
+                </button>
+
+                {showVersionHistory && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowVersionHistory(false)} />
+                    <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-[#dadce0] rounded-2xl shadow-xl p-3 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs">
+                      <div className="flex items-center justify-between pb-2 border-b border-[#dadce0] mb-2">
+                        <span className="font-bold text-[#202124]">Legal Version History</span>
+                        <span className="text-[10px] font-semibold text-[#1a73e8]">
+                          {document.versions.length + 1} versions
+                        </span>
+                      </div>
+                      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                        <div className="p-2 rounded-xl bg-[#e8f0fe]/60 border border-[#d2e3fc]">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[#1a73e8]">v{document.versions.length + 1} (Current Active)</span>
+                            <span className="text-[10px] text-[#5f6368]">{document.fileSize ? `${(document.fileSize / 1024).toFixed(1)} KB` : ''}</span>
+                          </div>
+                          <p className="text-[11px] text-[#5f6368] mt-0.5">
+                            Uploaded by <strong className="capitalize">{document.uploadedBy || 'solicitor'}</strong> on {new Date(document.updatedAt || document.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        {[...document.versions].reverse().map((v) => (
+                          <div key={v.versionNumber} className="p-2 rounded-xl border border-[#dadce0] bg-[#f8fafd] hover:bg-white transition-colors flex items-center justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 font-bold text-[#202124]">
+                                <span>v{v.versionNumber}</span>
+                                <span className="text-[10px] font-normal text-[#5f6368]">({(v.fileSize / 1024).toFixed(1)} KB)</span>
+                              </div>
+                              <p className="text-[10px] text-[#5f6368]">
+                                {new Date(v.uploadedAt).toLocaleDateString()} by <span className="capitalize font-medium">{v.uploadedBy || 'solicitor'}</span>
+                              </p>
+                            </div>
+                            {v.url && (
+                              <a
+                                href={v.url}
+                                download={`${document.name.replace(/\.[^/.]+$/, '')}_v${v.versionNumber}.${v.fileType || 'pdf'}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1 text-[#1a73e8] hover:bg-[#e8f0fe] rounded-lg transition-colors"
+                                title={`Download archived v${v.versionNumber}`}
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         )}

@@ -24,7 +24,8 @@ import {
   Edit2,
   Printer,
   Building,
-  Layers
+  Layers,
+  Trash2
 } from 'lucide-react';
 import { SolicitorProfile, DocumentItem, ClientRecord, StaffMember } from '../types';
 import { getTrialStatus } from '../lib/storage';
@@ -59,6 +60,10 @@ interface HeaderProps {
   onPrintAll?: () => void;
   onOpenLetterhead?: () => void;
   onEditClient?: () => void;
+  onOpenRecycleBin?: () => void;
+  deletedCount?: number;
+  onOpenAuditLog?: () => void;
+  onDownloadBackup?: () => void;
 }
 
 
@@ -90,7 +95,11 @@ export const Header: React.FC<HeaderProps> = ({
   onExportAsJpgZip,
   onPrintAll,
   onOpenLetterhead,
-  onEditClient
+  onEditClient,
+  onOpenRecycleBin,
+  deletedCount,
+  onOpenAuditLog,
+  onDownloadBackup
 }) => {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -450,6 +459,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Recycle Bin (Trash) Quick Button */}
+        {deletedCount !== undefined && deletedCount > 0 && onOpenRecycleBin && (
+          <button
+            onClick={onOpenRecycleBin}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-[#b06000] bg-[#fef7e0] hover:bg-[#fde293] rounded-lg border border-[#f9ab00]/40 transition-colors shadow-2xs"
+            title="Recycle Bin (Trash) — View and restore soft-deleted files"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-[#b06000]" />
+            <span className="hidden sm:inline">Trash ({deletedCount})</span>
+          </button>
+        )}
+
         {/* Lock Screen / Privacy Button */}
         {!currentStaffSession && (
           <button
@@ -577,6 +598,42 @@ export const Header: React.FC<HeaderProps> = ({
                     >
                       <Users className="w-4 h-4 text-[#1a73e8]" />
                       <span>Staff Team &amp; Passwords</span>
+                    </button>
+                  )}
+                  {onDownloadBackup && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onDownloadBackup();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#137333] hover:bg-[#e6f4ea] flex items-center gap-2 transition-colors font-medium"
+                    >
+                      <Download className="w-4 h-4 text-[#137333]" />
+                      <span>Export Compliance Backup (.JSON)</span>
+                    </button>
+                  )}
+                  {onOpenAuditLog && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenAuditLog();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#202124] hover:bg-[#f1f3f4] flex items-center gap-2 transition-colors"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-[#1a73e8]" />
+                      <span>Compliance &amp; Audit Trail</span>
+                    </button>
+                  )}
+                  {onOpenRecycleBin && (
+                    <button
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        onOpenRecycleBin();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg text-sm text-[#b06000] hover:bg-[#fef7e0] flex items-center gap-2 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 text-[#b06000]" />
+                      <span>Recycle Bin ({deletedCount || 0})</span>
                     </button>
                   )}
                   <button

@@ -9,7 +9,9 @@ import {
   ClientRecord,
   DocumentFolder,
   FolderColor,
-  StaffMember
+  StaffMember,
+  AuditLogEntry,
+  DocumentVersion
 } from './types';
 import { 
   getClients,
@@ -59,7 +61,11 @@ import {
   getStaff,
   saveStaffMember,
   deleteStaffMember,
-  fetchStaffFromSupabase
+  fetchStaffFromSupabase,
+  getAuditLogs,
+  recordAuditLog,
+  clearAuditLogs,
+  generateFullFirmBackup
 } from './lib/storage';
 import { Header } from './components/Header';
 import { CollectionTabs } from './components/CollectionTabs';
@@ -81,6 +87,8 @@ import { DiscountKeysModal } from './components/Modals/DiscountKeysModal';
 import { StaffLogin } from './components/StaffPortal/StaffLogin';
 import { StaffInviteSetup } from './components/StaffPortal/StaffInviteSetup';
 import { StaffManagementModal } from './components/Modals/StaffManagementModal';
+import { RecycleBinModal } from './components/Modals/RecycleBinModal';
+import { AuditLogModal } from './components/Modals/AuditLogModal';
 import { UploadProgressToast, UploadProgressInfo } from './components/UploadProgressToast';
 import { printMultipleDocuments } from './lib/printUtils';
 import { ArrowLeft, ShieldAlert, Sparkles, KeyRound, UploadCloud } from 'lucide-react';
@@ -101,6 +109,22 @@ export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
     if (existing) {
       // Prioritize the document record that contains a valid non-empty file URL!
       const validUrl = (d.url && d.url.length > 0) ? d.url : existing.url;
+
+      // Preserve and append version history if file was updated/replaced!
+      const existingVersions: DocumentVersion[] = [...(existing.versions || [])];
+      if (existing.url && d.url && existing.url !== d.url) {
+        const vNum = existingVersions.length + 1;
+        existingVersions.push({
+          versionNumber: vNum,
+          url: existing.url,
+          fileSize: existing.fileSize || 0,
+          fileType: existing.fileType || 'pdf',
+          uploadedBy: existing.uploadedBy || 'solicitor',
+          uploadedAt: existing.updatedAt || existing.createdAt || new Date().toISOString(),
+          notes: existing.notes
+        });
+      }
+
       const merged: DocumentItem = {
         ...existing,
         ...d,
@@ -108,7 +132,10 @@ export const deduplicateDocuments = (docs: DocumentItem[]): DocumentItem[] => {
         url: validUrl || '',
         hasFile: Boolean((validUrl && validUrl.length > 0) || d.hasFile || existing.hasFile),
         folderId: d.folderId || existing.folderId,
-        pages: (d.pages && d.pages.length > 0) ? d.pages : existing.pages
+        pages: (d.pages && d.pages.length > 0) ? d.pages : existing.pages,
+        versions: existingVersions.length > 0 ? existingVersions : (d.versions || existing.versions),
+        isDeleted: d.isDeleted !== undefined ? d.isDeleted : existing.isDeleted,
+        deletedAt: d.deletedAt || existing.deletedAt
       };
       byId.set(existing.id, merged);
     } else {
@@ -306,6 +333,14 @@ export function App() {
   const [editingClient, setEditingClient] = useState<ClientRecord | null>(null);
   const [isLetterheadOpen, setIsLetterheadOpen] = useState<boolean>(false);
   const [letterheadInitialDoc, setLetterheadInitialDoc] = useState<DocumentItem | null>(null);
+  const [isRecycleBinOpen, setIsRecycleBinOpen] = useState<boolean>(false);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState<boolean>(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => getAuditLogs());
+
+  // Soft-deleted documents in Recycle Bin
+  const deletedDocuments = useMemo(() => {
+    return documents.filter((d) => Boolean(d.isDeleted));
+  }, [documents]);
 
   // Staff & Team Directory
   const [staffList, setStaffList] = useState<StaffMember[]>(() => getStaff());
@@ -676,11 +711,14 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Selected client object
+  // Selected client object (with strict staff authorization check)
   const selectedClient = useMemo(() => {
     if (!selectedClientId) return null;
+    if (currentStaffSession && !currentStaffSession.assignedClientIds?.includes(selectedClientId)) {
+      return null;
+    }
     return clients.find((c) => c.id === selectedClientId) || null;
-  }, [clients, selectedClientId]);
+  }, [clients, selectedClientId, currentStaffSession]);
 
   // Filter tabs for the selected client
   const clientTabs = useMemo(() => {
@@ -722,7 +760,7 @@ export function App() {
     return folders.filter((f) => f.collectionId === activeTab.id);
   }, [folders, activeTab?.id]);
 
-  // Documents under the active tab
+  // Documents under the active tab (filters out soft-deleted recycle bin files)
   const tabDocuments = useMemo(() => {
     let filtered: DocumentItem[] = [];
     if (activeTab.id && activeTab.id !== 'default') {
@@ -733,6 +771,7 @@ export function App() {
       filtered = documents;
     }
     return filtered
+      .filter((d) => !d.isDeleted)
       .filter((d) => {
         if (!searchQuery.trim()) return true;
         const q = searchQuery.toLowerCase();
@@ -753,19 +792,19 @@ export function App() {
   // Active document
   const activeDoc = useMemo(() => {
     if (!activeDocId) return tabDocuments.find(d => d.hasFile) || tabDocuments[0] || null;
-    return documents.find((d) => d.id === activeDocId) || null;
+    return documents.find((d) => d.id === activeDocId && !d.isDeleted) || null;
   }, [documents, activeDocId, tabDocuments]);
 
   // Selected document objects
   const selectedDocuments = useMemo(() => {
-    return documents.filter((d) => selectedDocIds.includes(d.id));
+    return documents.filter((d) => selectedDocIds.includes(d.id) && !d.isDeleted);
   }, [documents, selectedDocIds]);
 
-  // Document status counts per tab
+  // Document status counts per tab (excluding soft-deleted files)
   const documentCounts = useMemo(() => {
     const counts: Record<string, { total: number; missing: number; approved: number }> = {};
     clientTabs.forEach((tab) => {
-      const tabDocs = documents.filter((d) => d.collectionId === tab.id);
+      const tabDocs = documents.filter((d) => d.collectionId === tab.id && !d.isDeleted);
       const missing = tabDocs.filter((d) => d.status === 'missing' || d.status === 'disapproved').length;
       const approved = tabDocs.filter((d) => d.status === 'approved').length;
       counts[tab.id] = {
@@ -1283,14 +1322,93 @@ export function App() {
 
   const handleDeleteDocument = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('Delete this document item?')) {
-      deleteDocumentFromSupabase(id, user?.id).catch((err) => console.warn('Supabase delete note:', err));
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
+    if (currentStaffSession && currentStaffSession.permissions?.canDelete === false) {
+      alert('Permission Denied: Your staff profile is not permitted to delete documents.');
+      return;
+    }
+    const targetDoc = documents.find((d) => d.id === id);
+    if (!targetDoc) return;
+
+    if (confirm(`Move "${targetDoc.name}" to Recycle Bin? (You can view or restore it anytime)`)) {
+      const softDeletedDoc: DocumentItem = {
+        ...targetDoc,
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      setDocuments((prev) => prev.map((d) => (d.id === id ? softDeletedDoc : d)));
+      syncSingleDocumentToSupabase(softDeletedDoc, user?.id);
       setSelectedDocIds((prev) => prev.filter((dId) => dId !== id));
       if (activeDocId === id) {
         setActiveDocId(null);
       }
+      const audit = recordAuditLog({
+        action: 'DELETE',
+        entityType: 'document',
+        entityId: id,
+        entityName: targetDoc.name,
+        performedBy: currentStaffSession?.name || user?.displayName || 'Principal Solicitor',
+        details: `Soft-deleted "${targetDoc.name}" into Recycle Bin`
+      });
+      setAuditLogs((prev) => [audit, ...prev]);
     }
+  };
+
+  const handleRestoreDocument = (id: string) => {
+    const doc = documents.find((d) => d.id === id);
+    if (!doc) return;
+    const restoredDoc: DocumentItem = {
+      ...doc,
+      isDeleted: false,
+      deletedAt: undefined,
+      updatedAt: new Date().toISOString()
+    };
+    setDocuments((prev) => prev.map((d) => (d.id === id ? restoredDoc : d)));
+    syncSingleDocumentToSupabase(restoredDoc, user?.id);
+    const audit = recordAuditLog({
+      action: 'RESTORE',
+      entityType: 'document',
+      entityId: id,
+      entityName: doc.name,
+      performedBy: currentStaffSession?.name || user?.displayName || 'Principal Solicitor',
+      details: `Restored document "${doc.name}" from Recycle Bin back to active case file`
+    });
+    setAuditLogs((prev) => [audit, ...prev]);
+  };
+
+  const handlePermanentDeleteDocument = (id: string) => {
+    const doc = documents.find((d) => d.id === id);
+    deleteDocumentFromSupabase(id, user?.id).catch((err) => console.warn('Supabase delete note:', err));
+    setDocuments((prev) => prev.filter((d) => d.id !== id));
+    setSelectedDocIds((prev) => prev.filter((dId) => dId !== id));
+    if (activeDocId === id) {
+      setActiveDocId(null);
+    }
+    const audit = recordAuditLog({
+      action: 'DELETE',
+      entityType: 'document',
+      entityId: id,
+      entityName: doc?.name || id,
+      performedBy: currentStaffSession?.name || user?.displayName || 'Principal Solicitor',
+      details: `Permanently destroyed document "${doc?.name || id}" and recorded tombstone`
+    });
+    setAuditLogs((prev) => [audit, ...prev]);
+  };
+
+  const handleEmptyRecycleBin = () => {
+    const idsToPurge = deletedDocuments.map((d) => d.id);
+    if (idsToPurge.length === 0) return;
+    deleteBatchDocumentsFromSupabase(idsToPurge, user?.id).catch((err) => console.warn('Supabase batch delete note:', err));
+    setDocuments((prev) => prev.filter((d) => !idsToPurge.includes(d.id)));
+    setSelectedDocIds((prev) => prev.filter((dId) => !idsToPurge.includes(dId)));
+    const audit = recordAuditLog({
+      action: 'DELETE',
+      entityType: 'document',
+      performedBy: currentStaffSession?.name || user?.displayName || 'Principal Solicitor',
+      details: `Emptied Recycle Bin: permanently purged ${idsToPurge.length} documents`
+    });
+    setAuditLogs((prev) => [audit, ...prev]);
+    setIsRecycleBinOpen(false);
   };
 
   // Folder operations
@@ -1734,6 +1852,10 @@ export function App() {
         }}
         onOpenLetterhead={() => setIsLetterheadOpen(true)}
         onEditClient={() => selectedClient && handleOpenEditClient(selectedClient, {} as any)}
+        onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+        deletedCount={deletedDocuments.length}
+        onOpenAuditLog={() => setIsAuditLogOpen(true)}
+        onDownloadBackup={generateFullFirmBackup}
       />
 
       {/* LEVEL 1: Main Company Page & Clients Directory */}
@@ -2021,6 +2143,27 @@ export function App() {
         onOpenStaffPortal={() => {
           setIsStaffManagementOpen(false);
           setPortalParam('staff');
+        }}
+      />
+
+      <RecycleBinModal
+        isOpen={isRecycleBinOpen}
+        onClose={() => setIsRecycleBinOpen(false)}
+        deletedDocuments={deletedDocuments}
+        clients={clients}
+        tabs={tabs}
+        onRestoreDocument={handleRestoreDocument}
+        onPermanentlyDeleteDocument={handlePermanentDeleteDocument}
+        onEmptyRecycleBin={handleEmptyRecycleBin}
+      />
+
+      <AuditLogModal
+        isOpen={isAuditLogOpen}
+        onClose={() => setIsAuditLogOpen(false)}
+        logs={auditLogs}
+        onClearLogs={() => {
+          clearAuditLogs();
+          setAuditLogs([]);
         }}
       />
 

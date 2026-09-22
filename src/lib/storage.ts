@@ -3,7 +3,7 @@ import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
 import mammoth from 'mammoth';
-import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder, StaffMember } from '../types';
+import { DocumentItem, CollectionTab, ShareRecord, SolicitorProfile, FileType, DocumentStatus, ClientRecord, InviteKeyRecord, DocumentFolder, StaffMember, AuditLogEntry, DocumentVersion } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { idbSaveDocuments, idbGetDocuments } from './idbStorage';
 
@@ -624,6 +624,14 @@ export const syncDocumentsToSupabase = async (
         if (doc.folderId && !notesWithFolder.includes(`[folderId:`)) {
           notesWithFolder = `[folderId:${doc.folderId}] ${notesWithFolder}`.trim();
         }
+        if (doc.isDeleted && !notesWithFolder.includes(`[isDeleted:true]`)) {
+          notesWithFolder = `[isDeleted:true] [deletedAt:${doc.deletedAt || new Date().toISOString()}] ${notesWithFolder}`.trim();
+        }
+        if (doc.versions && doc.versions.length > 0 && !notesWithFolder.includes(`[versions:`)) {
+          try {
+            notesWithFolder = `[versions:${encodeURIComponent(JSON.stringify(doc.versions.slice(-8)))}] ${notesWithFolder}`.trim();
+          } catch {}
+        }
 
         const tabMatch = tabs?.find((t) => t.id === doc.collectionId);
         const resolvedClientId = toDeterministicUUID(doc.clientId || tabMatch?.clientId || defaultClientId);
@@ -754,11 +762,33 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
 
     return activeData.map((d: any): DocumentItem => {
       let folderId: string | undefined = d.folder_id || undefined;
+      let isDeleted = false;
+      let deletedAt: string | undefined = undefined;
+      let versions: DocumentVersion[] | undefined = undefined;
       let cleanNotes = d.notes || '';
+
       const match = cleanNotes.match(/\[folderId:([^\]]+)\]/);
       if (match) {
         folderId = match[1];
         cleanNotes = cleanNotes.replace(/\[folderId:[^\]]+\]\s*/, '').trim();
+      }
+
+      if (cleanNotes.includes('[isDeleted:true]')) {
+        isDeleted = true;
+        cleanNotes = cleanNotes.replace(/\[isDeleted:true\]\s*/, '').trim();
+        const delMatch = cleanNotes.match(/\[deletedAt:([^\]]+)\]/);
+        if (delMatch) {
+          deletedAt = delMatch[1];
+          cleanNotes = cleanNotes.replace(/\[deletedAt:[^\]]+\]\s*/, '').trim();
+        }
+      }
+
+      const vMatch = cleanNotes.match(/\[versions:([^\]]+)\]/);
+      if (vMatch) {
+        try {
+          versions = JSON.parse(decodeURIComponent(vMatch[1]));
+          cleanNotes = cleanNotes.replace(/\[versions:[^\]]+\]\s*/, '').trim();
+        } catch {}
       }
 
       return {
@@ -775,7 +805,10 @@ export const fetchUserDocumentsFromSupabase = async (userId?: string): Promise<D
         folderId,
         clientId: d.client_id || undefined,
         createdAt: d.created_at || new Date().toISOString(),
-        updatedAt: d.updated_at || new Date().toISOString()
+        updatedAt: d.updated_at || new Date().toISOString(),
+        isDeleted,
+        deletedAt,
+        versions
       };
     });
   } catch (err) {
@@ -2513,4 +2546,96 @@ export const validateAndConsumeInviteKey = (
     valid: false,
     reason: 'Invalid Registration Key. Please check the code with your software provider.'
   };
+};
+
+const AUDIT_LOG_KEY = 'docvault_audit_logs';
+
+export const getAuditLogs = (): AuditLogEntry[] => {
+  try {
+    const raw = localStorage.getItem(AUDIT_LOG_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const recordAuditLog = (entry: Omit<AuditLogEntry, 'id' | 'timestamp'>): AuditLogEntry => {
+  const newEntry: AuditLogEntry = {
+    ...entry,
+    id: generateUUID(),
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const existing = getAuditLogs();
+    const updated = [newEntry, ...existing].slice(0, 1000);
+    localStorage.setItem(AUDIT_LOG_KEY, JSON.stringify(updated));
+  } catch {}
+  return newEntry;
+};
+
+export const clearAuditLogs = () => {
+  try {
+    localStorage.removeItem(AUDIT_LOG_KEY);
+  } catch {}
+};
+
+export const generateFullFirmBackup = () => {
+  const solicitor = getSolicitorProfile();
+  const clients = getClients();
+  const tabs = getInitialTabs();
+  const folders = getInitialFolders();
+  const documents = getInitialDocuments();
+  const shares = getShares();
+  const staff = getStaff();
+  const auditLogs = getAuditLogs();
+
+  const backupData = {
+    system: 'DocVault Legal Chambers Enterprise System',
+    formatVersion: '2.5.0-PRO',
+    generatedAt: new Date().toISOString(),
+    firmDetails: {
+      companyName: solicitor.companyName || 'DocVault Legal Chambers',
+      solicitorName: solicitor.displayName,
+      email: solicitor.email,
+      phone: solicitor.phone || '',
+      address: solicitor.address || '',
+      sraNumber: solicitor.sraNumber || '',
+      website: solicitor.website || ''
+    },
+    metrics: {
+      clientsTotal: clients.length,
+      casesTotal: tabs.length,
+      foldersTotal: folders.length,
+      documentsTotal: documents.length,
+      sharesTotal: shares.length,
+      staffTotal: staff.length,
+      auditLogsTotal: auditLogs.length
+    },
+    clients,
+    cases: tabs,
+    folders,
+    documents,
+    shares,
+    staff,
+    auditLogs
+  };
+
+  const jsonString = JSON.stringify(backupData, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const safeFirm = (solicitor.companyName || 'DocVault').replace(/[^a-zA-Z0-9_-]/g, '_');
+  a.href = url;
+  a.download = `DocVault_Compliance_Backup_${safeFirm}_${new Date().toISOString().split('T')[0]}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  recordAuditLog({
+    action: 'BACKUP_EXPORT',
+    entityType: 'backup',
+    performedBy: solicitor.displayName || 'Principal Solicitor',
+    details: `Exported complete compliance backup archive (${documents.length} docs, ${clients.length} clients)`
+  });
 };
