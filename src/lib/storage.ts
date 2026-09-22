@@ -827,8 +827,95 @@ export const fetchShareFromSupabase = async (
       payload: data.payload
     };
 
-    const docs: DocumentItem[] = data.payload?.docs || [];
-    const folders: DocumentFolder[] = data.payload?.folders || [];
+    let docs: DocumentItem[] = data.payload?.docs || [];
+    let folders: DocumentFolder[] = data.payload?.folders || [];
+
+    // Fallback 1: Query Supabase documents table directly if payload has no docs
+    if (docs.length === 0 && data.target_ids && data.target_ids.length > 0) {
+      try {
+        let docQuery = supabase.from('documents').select('*');
+        if (data.scope === 'collection') {
+          docQuery = docQuery.in('collection_id', data.target_ids);
+        } else {
+          docQuery = docQuery.in('id', data.target_ids);
+        }
+        const { data: dbDocs } = await docQuery;
+        if (dbDocs && dbDocs.length > 0) {
+          docs = dbDocs.map((d: any): DocumentItem => {
+            let folderId: string | undefined = d.folder_id || undefined;
+            let cleanNotes = d.notes || '';
+            const match = cleanNotes.match(/\[folderId:([^\]]+)\]/);
+            if (match) {
+              folderId = match[1];
+              cleanNotes = cleanNotes.replace(/\[folderId:[^\]]+\]\s*/, '').trim();
+            }
+            return {
+              id: d.id,
+              name: d.name,
+              fileType: d.file_type || 'pdf',
+              fileSize: d.file_size || 0,
+              url: d.url || '',
+              hasFile: d.has_file !== false,
+              status: d.status || 'pending',
+              notes: cleanNotes,
+              collectionId: d.collection_id || 'default',
+              folderId,
+              clientId: d.client_id || undefined,
+              createdAt: d.created_at || new Date().toISOString(),
+              updatedAt: d.updated_at || new Date().toISOString()
+            };
+          });
+        }
+      } catch (docErr) {
+        console.warn('Direct Supabase document fetch note:', docErr);
+      }
+    }
+
+    // Fallback 2: Query Supabase clients table directly to extract folders if missing
+    if (folders.length === 0) {
+      try {
+        const clientId = data.client_id || docs[0]?.clientId;
+        let clientQuery = supabase.from('clients').select('notes');
+        if (clientId) {
+          clientQuery = clientQuery.eq('id', clientId);
+        } else if (data.solicitor_id) {
+          clientQuery = clientQuery.eq('solicitor_id', data.solicitor_id);
+        }
+        const { data: clientData } = await clientQuery;
+        if (clientData && clientData.length > 0) {
+          folders = extractFoldersFromClients(clientData as any);
+        }
+      } catch (folderErr) {
+        console.warn('Direct Supabase folder fetch note:', folderErr);
+      }
+    }
+
+    // Fallback 3: Query Bytebin CDN if docs are still empty
+    if (docs.length === 0) {
+      try {
+        const bRes = await fetch(`https://bytebin.lucko.me/${shareId}`);
+        if (bRes.ok) {
+          const bData = await bRes.json();
+          if (bData && bData.docs && bData.docs.length > 0) {
+            docs = bData.docs;
+            if (folders.length === 0 && bData.folders) {
+              folders = bData.folders;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Cache back into Supabase payload if it was missing
+    if (docs.length > 0 && !data.payload) {
+      try {
+        await supabase
+          .from('shared_links')
+          .update({ payload: { share, docs, folders } })
+          .eq('id', shareId);
+      } catch {}
+    }
+
     return { share, docs, folders };
   } catch (err) {
     console.warn('Failed to fetch share from Supabase:', err);

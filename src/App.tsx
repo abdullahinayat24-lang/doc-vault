@@ -45,6 +45,7 @@ import {
   syncDocumentsToSupabase,
   extractFoldersFromClients,
   syncFoldersToSupabase,
+  syncShareToSupabase,
   migrateLocalDocumentsToCloud,
   initTrial,
   getTrialStatus,
@@ -130,7 +131,7 @@ export function App() {
   });
 
   // Cloud share state for cross-device links without local storage
-  const [cloudShareData, setCloudShareData] = useState<{ share: ShareRecord; docs: DocumentItem[] } | null>(null);
+  const [cloudShareData, setCloudShareData] = useState<{ share: ShareRecord; docs: DocumentItem[]; folders?: DocumentFolder[] } | null>(null);
   const [isLoadingCloudShare, setIsLoadingCloudShare] = useState<boolean>(() => {
     const params = new URLSearchParams(window.location.search);
     const p = params.get('share');
@@ -141,50 +142,68 @@ export function App() {
 
   useEffect(() => {
     if (!shareParam) return;
-    if (sharedPayload) return;
+    if (sharedPayload && sharedPayload.docs && sharedPayload.docs.length > 0) return;
+
+    // Check if local storage already has full payload with docs
     const local = getShares().find((s) => s.id === shareParam);
-    if (local) return;
+    if (local && local.payload && local.payload.docs && local.payload.docs.length > 0) {
+      setCloudShareData({
+        share: local,
+        docs: local.payload.docs,
+        folders: local.payload.folders || []
+      });
+      return;
+    }
 
     setIsLoadingCloudShare(true);
-    let resolved = false;
 
-    // 1. Fetch from Bytebin (global instant CDN)
-    const p1 = fetch(`https://bytebin.lucko.me/${shareParam}`)
-      .then(async (res) => {
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data && (data.share || data.title)) {
-          const share = data.share || data;
-          const fixedShare: ShareRecord = { ...share, id: shareParam };
-          const payload = {
-            share: fixedShare,
-            docs: data.docs || [],
-            folders: data.folders || []
-          };
-          if (!resolved) {
-            resolved = true;
-            setCloudShareData(payload);
-            saveShare(fixedShare);
-          }
-        }
-      })
-      .catch(() => {});
-
-    // 2. Fetch from Supabase in parallel
-    const p2 = fetchShareFromSupabase(shareParam)
-      .then((supabaseData) => {
-        if (supabaseData && supabaseData.share && !resolved) {
-          resolved = true;
+    const loadShare = async () => {
+      try {
+        // Priority 1: Supabase (enhanced with table and Bytebin fallbacks)
+        const supabaseData = await fetchShareFromSupabase(shareParam);
+        if (supabaseData && supabaseData.docs && supabaseData.docs.length > 0) {
           const fixedShare = { ...supabaseData.share, id: shareParam };
           setCloudShareData({ ...supabaseData, share: fixedShare });
           saveShare(fixedShare);
+          return;
         }
-      })
-      .catch(() => {});
 
-    Promise.allSettled([p1, p2]).finally(() => {
-      setIsLoadingCloudShare(false);
-    });
+        // Priority 2: Bytebin CDN fallback
+        try {
+          const bytebinRes = await fetch(`https://bytebin.lucko.me/${shareParam}`);
+          if (bytebinRes.ok) {
+            const data = await bytebinRes.json();
+            if (data && (data.share || data.title)) {
+              const share = data.share || data;
+              const fixedShare: ShareRecord = { ...share, id: shareParam };
+              const payload = {
+                share: fixedShare,
+                docs: data.docs || [],
+                folders: data.folders || []
+              };
+              setCloudShareData(payload);
+              saveShare(fixedShare);
+              syncShareToSupabase(fixedShare, data.docs, data.folders).catch(() => {});
+              return;
+            }
+          }
+        } catch (bErr) {
+          console.warn('Bytebin fetch error:', bErr);
+        }
+
+        // Priority 3: Use whatever Supabase returned if present
+        if (supabaseData && supabaseData.share) {
+          const fixedShare = { ...supabaseData.share, id: shareParam };
+          setCloudShareData({ ...supabaseData, share: fixedShare });
+        }
+      } catch (err) {
+        console.warn('Share load error:', err);
+      } finally {
+        setIsLoadingCloudShare(false);
+      }
+    };
+
+    loadShare();
   }, [shareParam, sharedPayload]);
 
   // Main state - null profile by default prompts Create Account / Sign In
@@ -1269,8 +1288,12 @@ export function App() {
 
     // Prefer embedded URL payload (works cross-device), then cloud store, then localStorage
     const shareRecord = sharedPayload?.share || cloudShareData?.share || (getShares().find((s) => s.id === shareParam) ?? null);
-    const rawDocs = sharedPayload?.docs || cloudShareData?.docs || documents;
-    const rawFolders = (sharedPayload as any)?.folders || (cloudShareData as any)?.folders || folders;
+    const rawDocs = (sharedPayload?.docs && sharedPayload.docs.length > 0 ? sharedPayload.docs : undefined) 
+      || (cloudShareData?.docs && cloudShareData.docs.length > 0 ? cloudShareData.docs : undefined) 
+      || (documents.length > 0 ? documents : []);
+    const rawFolders = ((sharedPayload as any)?.folders && (sharedPayload as any).folders.length > 0 ? (sharedPayload as any).folders : undefined) 
+      || ((cloudShareData as any)?.folders && (cloudShareData as any).folders.length > 0 ? (cloudShareData as any).folders : undefined) 
+      || (folders.length > 0 ? folders : []);
 
     // Merge document content so local file data is never missing or blank
     const sharedDocs = rawDocs.map((sd) => {
@@ -1293,15 +1316,30 @@ export function App() {
         documents={sharedDocs}
         folders={rawFolders}
         tabs={tabs}
-        onUploadClientFile={handleUploadToFileSlot}
-        onClientUploadNewDoc={async (collectionId, file) => {
+        onUploadClientFile={async (docId, file) => {
+          await handleUploadToFileSlot(docId, file);
+          setCloudShareData((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              docs: (prev.docs || []).map((d) => d.id === docId ? { ...d, hasFile: true } : d)
+            };
+          });
+        }}
+        onClientUploadNewDoc={async (collectionId, file, folderId) => {
           const fileType = detectFileType(file.name, file.type);
           const docId = generateUUID();
           const { url } = await uploadFileOnline(file, shareRecord?.ownerId, docId);
+          let notesWithFolder = '';
+          if (folderId) {
+            notesWithFolder = `[folderId:${folderId}]`;
+          }
           const newItem: DocumentItem = {
             id: docId,
             name: file.name,
             collectionId,
+            folderId,
+            notes: notesWithFolder,
             fileType,
             fileSize: file.size,
             url,
@@ -1313,6 +1351,13 @@ export function App() {
           };
           syncSingleDocumentToSupabase(newItem, shareRecord?.ownerId);
           setDocuments((prev) => [newItem, ...prev]);
+          setCloudShareData((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              docs: [newItem, ...(prev.docs || [])]
+            };
+          });
         }}
         onUpdateStatus={handleUpdateDocumentStatus}
         onBackToApp={() => {
