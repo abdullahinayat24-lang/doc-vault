@@ -1256,7 +1256,7 @@ export function App() {
           {/* Document Workspace */}
           <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0 relative">
             {/* Left Documents List */}
-            <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden flex-shrink-0`}>
+            <div className={`${mobilePane === 'viewer' ? 'hidden md:flex' : 'flex'} w-full md:w-[380px] lg:w-[420px] flex-col border-r border-[#dadce0] bg-white h-full overflow-hidden flex-shrink-0`}>
               <DocumentList
                 documents={tabDocuments}
                 folders={tabFolders}

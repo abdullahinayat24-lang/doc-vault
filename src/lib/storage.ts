@@ -782,14 +782,29 @@ export const getShares = (): ShareRecord[] => {
 };
 
 export const saveShare = (share: ShareRecord) => {
-  const shares = getShares();
-  const existingIndex = shares.findIndex(s => s.id === share.id);
-  if (existingIndex >= 0) {
-    shares[existingIndex] = share;
-  } else {
-    shares.push(share);
+  try {
+    const shares = getShares();
+    const cleanShare = { ...share };
+    // Strip giant base64 payloads before saving to localStorage to prevent QuotaExceededError
+    if (cleanShare.payload && cleanShare.payload.docs) {
+      cleanShare.payload = {
+        ...cleanShare.payload,
+        docs: cleanShare.payload.docs.map((d: any) => ({
+          ...d,
+          url: d.url && d.url.length > 100000 ? '' : d.url
+        }))
+      };
+    }
+    const existingIndex = shares.findIndex(s => s.id === cleanShare.id);
+    if (existingIndex >= 0) {
+      shares[existingIndex] = cleanShare;
+    } else {
+      shares.push(cleanShare);
+    }
+    localStorage.setItem(SHARES_KEY, JSON.stringify(shares));
+  } catch (err) {
+    console.warn('saveShare localStorage quota note:', err);
   }
-  localStorage.setItem(SHARES_KEY, JSON.stringify(shares));
   syncShareToSupabase(share).catch(() => {});
 };
 

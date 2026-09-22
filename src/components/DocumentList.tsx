@@ -653,9 +653,9 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 group/name">
+            <div className="flex items-center gap-1.5 group/name min-w-0">
               <p 
-                className="text-xs sm:text-sm font-semibold leading-tight flex-1 text-[#202124] break-words"
+                className="text-xs sm:text-sm font-semibold leading-snug flex-1 text-[#202124] break-normal line-clamp-2 select-text"
                 title={`${doc.name} (Double-click to rename)`}
                 onDoubleClick={(e) => {
                   if (onRenameDocument) handleStartEditing(doc, e);
@@ -814,50 +814,17 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               )}
             </div>
           )}
-        </div>
 
-        {/* Approve / Disapprove & Quick Action Buttons (hidden while editing name) */}
-        {editingDocId !== doc.id && (
-          <div 
-            className="flex flex-col items-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Status toggles */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => onUpdateDocumentStatus(doc.id, 'approved')}
-                className={`p-1 rounded transition-colors ${
-                  doc.status === 'approved' 
-                    ? 'bg-[#137333] text-white shadow-xs' 
-                    : 'text-[#5f6368] hover:text-[#137333] hover:bg-[#e6f4ea]'
-                }`}
-                title="Approve document (Turns Green)"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => {
-                  const reason = prompt('Reason for disapproval (optional):', doc.notes || '');
-                  onUpdateDocumentStatus(doc.id, 'disapproved', reason || undefined);
-                }}
-                className={`p-1 rounded transition-colors ${
-                  doc.status === 'disapproved' || doc.status === 'missing'
-                    ? 'bg-[#d93025] text-white shadow-xs' 
-                    : 'text-[#5f6368] hover:text-[#d93025] hover:bg-[#fce8e6]'
-                }`}
-                title="Disapprove document (Turns Red)"
-              >
-                <XCircle className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Action buttons on hover */}
-            <div className="flex items-center gap-1 pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Quick Action Toolbar on bottom row — clean, spacious, never cramps title */}
+          {editingDocId !== doc.id && (
+            <div 
+              className="flex items-center gap-1 pt-1.5 mt-1.5 border-t border-[#f1f3f4] opacity-80 group-hover:opacity-100 transition-opacity flex-wrap"
+              onClick={(e) => e.stopPropagation()}
+            >
               {onRenameDocument && (
                 <button
                   onClick={(e) => handleStartEditing(doc, e)}
-                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
                   title="Rename Document"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
@@ -867,7 +834,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                 <>
                   <button
                     onClick={(e) => onExportDocument(doc, e)}
-                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
                     title="Download Original File"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -878,15 +845,15 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                         e.stopPropagation();
                         onExportAsJpg(doc, e);
                       }}
-                      className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
-                      title="Convert &amp; Export as JPG"
+                      className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
+                      title="Convert & Export as JPG"
                     >
                       <ImageIcon className="w-3.5 h-3.5" />
                     </button>
                   )}
                   <button
                     onClick={(e) => onShareDocument(doc, e)}
-                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
                     title="Share Document"
                   >
                     <Share2 className="w-3.5 h-3.5" />
@@ -896,7 +863,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                       e.stopPropagation();
                       handlePrintSingle(doc);
                     }}
-                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                    className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
                     title="Print Document (ID card smart sizing on single A4 page)"
                   >
                     <Printer className="w-3.5 h-3.5" />
@@ -910,7 +877,7 @@ export const DocumentList: React.FC<DocumentListProps> = ({
                     e.stopPropagation();
                     onMoveDocToFolder(doc.id, undefined);
                   }}
-                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-black/5 rounded transition-colors"
+                  className="p-1 text-[#5f6368] hover:text-[#1a73e8] hover:bg-[#e8f0fe] rounded transition-colors"
                   title="Move out of folder to Root"
                 >
                   <CornerDownRight className="w-3.5 h-3.5" />
@@ -918,12 +885,47 @@ export const DocumentList: React.FC<DocumentListProps> = ({
               )}
               <button
                 onClick={(e) => onDeleteDocument(doc.id, e)}
-                className="p-1 text-[#5f6368] hover:text-[#d93025] hover:bg-black/5 rounded transition-colors"
+                className="p-1 text-[#5f6368] hover:text-[#d93025] hover:bg-[#fce8e6] rounded transition-colors"
                 title="Delete Slot"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </div>
+          )}
+        </div>
+
+        {/* Top Right: Status toggles only (compact, never pushes title) */}
+        {editingDocId !== doc.id && (
+          <div 
+            className="flex items-center gap-1 flex-shrink-0 pt-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => onUpdateDocumentStatus(doc.id, 'approved')}
+              className={`p-1 rounded transition-colors ${
+                doc.status === 'approved' 
+                  ? 'bg-[#137333] text-white shadow-xs' 
+                  : 'text-[#5f6368] hover:text-[#137333] hover:bg-[#e6f4ea]'
+              }`}
+              title="Approve document (Turns Green)"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                const reason = prompt('Reason for disapproval (optional):', doc.notes || '');
+                onUpdateDocumentStatus(doc.id, 'disapproved', reason || undefined);
+              }}
+              className={`p-1 rounded transition-colors ${
+                doc.status === 'disapproved' || doc.status === 'missing'
+                  ? 'bg-[#d93025] text-white shadow-xs' 
+                  : 'text-[#5f6368] hover:text-[#d93025] hover:bg-[#fce8e6]'
+              }`}
+              title="Disapprove document (Turns Red)"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
           </div>
         )}
       </div>

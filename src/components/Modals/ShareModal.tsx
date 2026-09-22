@@ -57,91 +57,101 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
   if (!isOpen) return null;
 
-  // ★ Instant — not async: link is shown immediately
+  // ★ Instant link generation: link is displayed immediately
   const handleCreateShare = () => {
-    setIsGenerating(true);
-    const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
-    let targetIds: string[] = [];
-    let title = '';
-    let targetDocs: DocumentItem[] = [];
+    try {
+      setIsGenerating(true);
+      const shareId = 'share_' + Math.random().toString(36).substring(2, 10);
+      let targetIds: string[] = [];
+      let title = '';
+      let targetDocs: DocumentItem[] = [];
 
-    if (scope === 'single' && currentDocument) {
-      targetIds = [currentDocument.id];
-      title = currentDocument.name;
-      targetDocs = [currentDocument];
-    } else if (scope === 'multiple') {
-      targetIds = selectedDocuments.map((d) => d.id);
-      title = `${selectedDocuments.length} Documents`;
-      targetDocs = selectedDocuments;
-    } else {
-      targetIds = [currentTab.id];
-      title = `${currentTab.name} (${currentTab.clientName || 'Client Case'})`;
-      targetDocs = allTabDocuments && allTabDocuments.length > 0 ? allTabDocuments : (currentDocument ? [currentDocument] : selectedDocuments);
-    }
-
-    const targetFolders = allTabFolders && allTabFolders.length > 0 ? allTabFolders : [];
-    const payloadDocs = targetDocs.map((d) => ({
-      id: d.id,
-      name: d.name,
-      collectionId: d.collectionId,
-      fileType: d.fileType,
-      status: d.status,
-      hasFile: d.hasFile,
-      fileSize: d.fileSize || 0,
-      notes: d.notes,
-      description: d.description,
-      rotation: d.rotation || 0,
-      folderId: d.folderId,
-      url: d.url || '',
-      content: d.content,
-      pages: d.pages || [],
-      createdAt: d.createdAt || new Date().toISOString(),
-      updatedAt: d.updatedAt || new Date().toISOString()
-    }));
-
-    const newRecord: ShareRecord = {
-      id: shareId,
-      title,
-      shareType,
-      scope,
-      targetIds,
-      passcode: passcode.trim(),
-      allowClientUpload: shareType === 'uploader',
-      createdAt: new Date().toISOString(),
-      ownerId: user.id,
-      ownerEmail: user.email,
-      companyName: user.companyName,
-      companyLogo: user.companyLogo
-    };
-
-    const payloadToSend = { share: newRecord, docs: payloadDocs, folders: targetFolders };
-    newRecord.payload = payloadToSend;
-
-    onSaveShare(newRecord);
-
-    const baseUrl = `${window.location.origin}${window.location.pathname}`;
-    const cleanShortUrl = `${baseUrl}?share=${shareId}`;
-
-    // ★ INSTANT: Link appears immediately with zero network waiting
-    setGeneratedLink(cleanShortUrl);
-    setIsGenerating(false);
-    setCloudSyncStatus('syncing');
-
-    // Background cloud sync — completely non-blocking
-    (async () => {
-      try {
-        if (isSupabaseConfigured()) {
-          await syncShareToSupabase(newRecord, targetDocs, targetFolders).catch(() => {});
-        }
-        await fetch('https://bytebin.lucko.me/post', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payloadToSend)
-        }).catch(() => {});
-      } finally {
-        setCloudSyncStatus('synced');
+      if (scope === 'single' && currentDocument) {
+        targetIds = [currentDocument.id];
+        title = currentDocument.name;
+        targetDocs = [currentDocument];
+      } else if (scope === 'multiple') {
+        targetIds = selectedDocuments.map((d) => d.id);
+        title = `${selectedDocuments.length} Documents`;
+        targetDocs = selectedDocuments;
+      } else {
+        targetIds = [currentTab.id];
+        title = `${currentTab.name} (${currentTab.clientName || 'Client Case'})`;
+        targetDocs = allTabDocuments && allTabDocuments.length > 0 ? allTabDocuments : (currentDocument ? [currentDocument] : selectedDocuments);
       }
-    })();
+
+      const targetFolders = allTabFolders && allTabFolders.length > 0 ? allTabFolders : [];
+      const payloadDocs = targetDocs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        collectionId: d.collectionId,
+        fileType: d.fileType,
+        status: d.status,
+        hasFile: d.hasFile,
+        fileSize: d.fileSize || 0,
+        notes: d.notes,
+        description: d.description,
+        rotation: d.rotation || 0,
+        folderId: d.folderId,
+        // Only keep URLs if not excessively large base64 strings
+        url: d.url && d.url.length > 250000 ? '' : (d.url || ''),
+        content: d.content,
+        pages: d.pages || [],
+        createdAt: d.createdAt || new Date().toISOString(),
+        updatedAt: d.updatedAt || new Date().toISOString()
+      }));
+
+      const newRecord: ShareRecord = {
+        id: shareId,
+        title,
+        shareType,
+        scope,
+        targetIds,
+        passcode: passcode.trim(),
+        allowClientUpload: shareType === 'uploader',
+        createdAt: new Date().toISOString(),
+        ownerId: user.id,
+        ownerEmail: user.email,
+        companyName: user.companyName,
+        companyLogo: user.companyLogo
+      };
+
+      const payloadToSend = { share: newRecord, docs: payloadDocs, folders: targetFolders };
+      newRecord.payload = payloadToSend;
+
+      try {
+        onSaveShare(newRecord);
+      } catch (saveErr) {
+        console.warn('Local share save note:', saveErr);
+      }
+
+      const baseUrl = `${window.location.origin}${window.location.pathname}`;
+      const cleanShortUrl = `${baseUrl}?share=${shareId}`;
+
+      // ★ INSTANT: Link appears immediately with zero waiting
+      setGeneratedLink(cleanShortUrl);
+      setCloudSyncStatus('syncing');
+
+      // Background cloud sync — completely non-blocking
+      (async () => {
+        try {
+          if (isSupabaseConfigured()) {
+            await syncShareToSupabase(newRecord, targetDocs, targetFolders).catch(() => {});
+          }
+          await fetch('https://bytebin.lucko.me/post', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadToSend)
+          }).catch(() => {});
+        } finally {
+          setCloudSyncStatus('synced');
+        }
+      })();
+    } catch (err) {
+      console.error('Share generation error:', err);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleCopy = () => {
